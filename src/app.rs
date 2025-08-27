@@ -283,6 +283,7 @@ pub enum NavMenuAction {
     Open(segmented_button::Entity),
     OpenTag(segmented_button::Entity),
     Preview(segmented_button::Entity),
+    RecursiveScanDirectories(segmented_button::Entity),
     RemoveFromSidebar(segmented_button::Entity),
     RemoveTagFromSidebar(segmented_button::Entity),
     EmptyTrash,
@@ -2895,6 +2896,11 @@ impl Application for App {
                             fl!("open"),
                             None,
                             NavMenuAction::Open(entity),
+                        ));
+                        items.push(cosmic::widget::menu::Item::Button(
+                            fl!("recursive-scan-directories"),
+                            None,
+                            NavMenuAction::RecursiveScanDirectories(entity),
                         ));
                     }
                     if favorite_index_opt.is_some() {
@@ -5606,6 +5612,20 @@ impl Application for App {
                                     crate::sql::SearchType::Tag,
                                     t.tag.clone(),
                                 ));
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                NavMenuAction::RecursiveScanDirectories(entity) => {
+                    if let Some(location) = self.nav_model.data::<Location>(entity) {
+                        match location {
+                            Location::Path(p) => {
+                                let pathbuf = p.to_path_buf();
+                                let sql_connection = self.sql_connection.clone();
+                                let _joinhandle = std::thread::spawn(move || {
+                                    crate::tab::scan_path_recursive(sql_connection, pathbuf)
+                                });
                             }
                             _ => {}
                         }
