@@ -972,6 +972,7 @@ pub fn item_from_video(
                 }
                 if refresh {
                     // file is newer
+                    log::warn!("Updating entry for modified Video {:?}.", filepath);
                     create_screenshots(videometadata);
                     if videometadata.date.num_days_from_ce() < 100 {
                         if let Ok(created) = statdata.created() {
@@ -1168,6 +1169,7 @@ pub fn item_from_nfo(
                 }
                 if refresh {
                     // file is newer
+                    log::warn!("Updating entry for modified Movie {:?}.", filepath);
                     video_metadata(metadata);
                     parse_nfo(&nfo_file, metadata);
                     if metadata.date.num_days_from_ce() < 100 {
@@ -1377,6 +1379,7 @@ pub fn item_from_audiotags(
                 }
                 if refresh {
                     // file is newer
+                    log::warn!("Updating entry for modified Audio {:?}.", filepath);
                     parse_audiotags(&audio, metadata);
                     // read chapter data from ffmpeg
                     let mut temp = crate::sql::VideoMetadata {
@@ -1581,6 +1584,7 @@ pub fn item_from_exif(
                 }
                 if refresh {
                     // file is newer
+                    log::warn!("Updating entry for modified Image {:?}.", filepath);
                     parse_exif(&image_file, metadata);
                     if metadata.thumb.len() == 0 {
                         if metadata.resized.len() > 0 {

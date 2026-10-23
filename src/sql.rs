@@ -5,7 +5,7 @@
 // Copyright 2024 Alexander Schwarzkopf
 
 use chrono::{NaiveDate, Timelike};
-use rusqlite::{params, Connection, Result};
+use rusqlite::{params, types::Value, Connection, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -189,7 +189,6 @@ impl PartialEq for SearchData {
             && self.fnumber == other.fnumber
             && self.gps_latitude == other.gps_latitude
             && self.gps_longitude == other.gps_longitude
-            && self.gps_longitude == other.gps_longitude
             && self.gps_altitude == other.gps_altitude
             && self.tags == other.tags;
         if !res {
@@ -199,9 +198,31 @@ impl PartialEq for SearchData {
     }
 }
 
+/// Escape a user supplied search term for use inside a SQL `LIKE` pattern.
+///
+/// The term is bound as a query parameter (so it can never alter the query),
+/// but `%`, `_` and the escape character itself are escaped so that they are
+/// matched literally instead of acting as wildcards.
+fn escape_like_term(term: &str) -> String {
+    let mut escaped = String::with_capacity(term.len() + 4);
+    escaped.push_str("%");
+    for c in term.chars() {
+        match c {
+            '\\' | '%' | '_' => {
+                escaped.push('\\');
+                escaped.push(c);
+            }
+            _ => escaped.push(c),
+        }
+    }
+    escaped.push_str("%");
+    escaped
+}
+
 fn search_video_metadata(
     sql_connection: std::sync::Arc<std::sync::Mutex<rusqlite::Connection>>,
     query: String,
+    params: Vec<Value>,
 ) -> (Vec<VideoMetadata>, Vec<FileMetadata>) {
     let mut files = Vec::new();
     let mut videos = Vec::new();
@@ -217,7 +238,7 @@ fn search_video_metadata(
     };
     match connection.prepare(&query) {
         Ok(mut statement) => {
-            match statement.query(params![]) {
+            match statement.query(rusqlite::params_from_iter(params.iter())) {
                 Ok(mut rows) => {
                     loop {
                         match rows.next() {
@@ -276,11 +297,10 @@ pub fn search_video(
         return (videos, files);
     }
     if search.title {
-        let query = format!(
-            "SELECT video_id FROM video_metadata WHERE title LIKE '%{}%'",
-            search.from_string
-        );
-        let (newvideos, newfiles) = search_video_metadata(sql_connection.clone(), query);
+        let query = "SELECT video_id FROM video_metadata WHERE title LIKE ? ESCAPE '\\'";
+        let params = vec![Value::Text(escape_like_term(&search.from_string))];
+        let (newvideos, newfiles) =
+            search_video_metadata(sql_connection.clone(), query.to_string(), params);
         for i in 0..newfiles.len() {
             if !used_files.contains(&newfiles[i].filepath) {
                 used_files.insert(newfiles[i].filepath.clone());
@@ -290,11 +310,10 @@ pub fn search_video(
         }
     }
     if search.description {
-        let query = format!(
-            "SELECT video_id FROM video_metadata WHERE description LIKE '%{}%'",
-            search.from_string
-        );
-        let (newvideos, newfiles) = search_video_metadata(sql_connection.clone(), query);
+        let query = "SELECT video_id FROM video_metadata WHERE description LIKE ? ESCAPE '\\'";
+        let params = vec![Value::Text(escape_like_term(&search.from_string))];
+        let (newvideos, newfiles) =
+            search_video_metadata(sql_connection.clone(), query.to_string(), params);
         for i in 0..newfiles.len() {
             if !used_files.contains(&newfiles[i].filepath) {
                 used_files.insert(newfiles[i].filepath.clone());
@@ -304,19 +323,23 @@ pub fn search_video(
         }
     }
     if search.duration && search.from_value != 0 {
-        let query;
+        let (query, params);
         if search.to_value != 0 {
-            query = format!(
-                "SELECT video_id FROM video_metadata WHERE duration > {} AND duration < {}",
-                search.from_value as u32, search.to_value as u32
+            (query, params) = (
+                "SELECT video_id FROM video_metadata WHERE duration > ? AND duration < ?",
+                vec![
+                    Value::Integer(search.from_value as i64),
+                    Value::Integer(search.to_value as i64),
+                ],
             );
         } else {
-            query = format!(
-                "SELECT video_id FROM video_metadata WHERE duration > {}",
-                search.from_value as u32
+            (query, params) = (
+                "SELECT video_id FROM video_metadata WHERE duration > ?",
+                vec![Value::Integer(search.from_value as i64)],
             );
         }
-        let (newvideos, newfiles) = search_video_metadata(sql_connection.clone(), query);
+        let (newvideos, newfiles) =
+            search_video_metadata(sql_connection.clone(), query.to_string(), params);
         for i in 0..newfiles.len() {
             if !used_files.contains(&newfiles[i].filepath) {
                 used_files.insert(newfiles[i].filepath.clone());
@@ -326,8 +349,10 @@ pub fn search_video(
         }
     }
     if search.actor {
-        let query = format!("SELECT video_id FROM actors INNER JOIN people ON people.person_id = actors.actor_id WHERE people.person_name LIKE '%{}%'", search.from_string);
-        let (newvideos, newfiles) = search_video_metadata(sql_connection.clone(), query);
+        let query = "SELECT video_id FROM actors INNER JOIN people ON people.person_id = actors.actor_id WHERE people.person_name LIKE ? ESCAPE '\\'";
+        let params = vec![Value::Text(escape_like_term(&search.from_string))];
+        let (newvideos, newfiles) =
+            search_video_metadata(sql_connection.clone(), query.to_string(), params);
         for i in 0..newfiles.len() {
             if !used_files.contains(&newfiles[i].filepath) {
                 used_files.insert(newfiles[i].filepath.clone());
@@ -337,8 +362,10 @@ pub fn search_video(
         }
     }
     if search.director {
-        let query = format!("SELECT video_id FROM directors INNER JOIN people ON people.person_id = directors.director_id WHERE people.person_name LIKE '%{}%'", search.from_string);
-        let (newvideos, newfiles) = search_video_metadata(sql_connection.clone(), query);
+        let query = "SELECT video_id FROM directors INNER JOIN people ON people.person_id = directors.director_id WHERE people.person_name LIKE ? ESCAPE '\\'";
+        let params = vec![Value::Text(escape_like_term(&search.from_string))];
+        let (newvideos, newfiles) =
+            search_video_metadata(sql_connection.clone(), query.to_string(), params);
         for i in 0..newfiles.len() {
             if !used_files.contains(&newfiles[i].filepath) {
                 used_files.insert(newfiles[i].filepath.clone());
@@ -348,19 +375,23 @@ pub fn search_video(
         }
     }
     if search.release_date {
-        let query;
+        let (query, params);
         if search.to_date != 0 {
-            query = format!(
-                "SELECT video_id FROM video_metadata WHERE released > {} AND released < {}",
-                search.from_date, search.to_date
+            (query, params) = (
+                "SELECT video_id FROM video_metadata WHERE released > ? AND released < ?",
+                vec![
+                    Value::Integer(search.from_date),
+                    Value::Integer(search.to_date),
+                ],
             );
         } else {
-            query = format!(
-                "SELECT video_id FROM video_metadata WHERE released > {}",
-                search.from_date
+            (query, params) = (
+                "SELECT video_id FROM video_metadata WHERE released > ?",
+                vec![Value::Integer(search.from_date)],
             );
         }
-        let (newvideos, newfiles) = search_video_metadata(sql_connection.clone(), query);
+        let (newvideos, newfiles) =
+            search_video_metadata(sql_connection.clone(), query.to_string(), params);
         for i in 0..newfiles.len() {
             if !used_files.contains(&newfiles[i].filepath) {
                 used_files.insert(newfiles[i].filepath.clone());
@@ -370,8 +401,10 @@ pub fn search_video(
         }
     }
     if search.tags {
-        let query = format!("SELECT media_id FROM tags_media_map INNER JOIN tags ON tags_media_map.tagmap_id = tags.tag_id WHERE tags.tag LIKE '%{}%'", search.from_string);
-        let (newvideos, newfiles) = search_video_metadata(sql_connection.clone(), query);
+        let query = "SELECT media_id FROM tags_media_map INNER JOIN tags ON tags_media_map.tagmap_id = tags.tag_id WHERE tags.tag LIKE ? ESCAPE '\\'";
+        let params = vec![Value::Text(escape_like_term(&search.from_string))];
+        let (newvideos, newfiles) =
+            search_video_metadata(sql_connection.clone(), query.to_string(), params);
         for i in 0..newfiles.len() {
             if !used_files.contains(&newfiles[i].filepath) {
                 used_files.insert(newfiles[i].filepath.clone());
@@ -387,6 +420,7 @@ pub fn search_video(
 fn search_audio_metadata(
     sql_connection: std::sync::Arc<std::sync::Mutex<rusqlite::Connection>>,
     query: String,
+    params: Vec<Value>,
 ) -> (Vec<AudioMetadata>, Vec<FileMetadata>) {
     let mut files = Vec::new();
     let mut audios = Vec::new();
@@ -402,7 +436,7 @@ fn search_audio_metadata(
 
     match connection.prepare(&query) {
         Ok(mut statement) => {
-            match statement.query(params![]) {
+            match statement.query(rusqlite::params_from_iter(params.iter())) {
                 Ok(mut rows) => {
                     loop {
                         match rows.next() {
@@ -461,11 +495,10 @@ pub fn search_audio(
         return (audios, files);
     }
     if search.title {
-        let query = format!(
-            "SELECT audio_id FROM audio_metadata WHERE title LIKE '%{}%'",
-            search.from_string
-        );
-        let (newvideos, newfiles) = search_audio_metadata(sql_connection.clone(), query);
+        let query = "SELECT audio_id FROM audio_metadata WHERE title LIKE ? ESCAPE '\\'";
+        let params = vec![Value::Text(escape_like_term(&search.from_string))];
+        let (newvideos, newfiles) =
+            search_audio_metadata(sql_connection.clone(), query.to_string(), params);
         for i in 0..newfiles.len() {
             if !used_files.contains(&newfiles[i].filepath) {
                 used_files.insert(newfiles[i].filepath.clone());
@@ -475,20 +508,23 @@ pub fn search_audio(
         }
     }
     if search.duration && search.from_value != 0 {
-        let query;
+        let (query, params);
         if search.to_value != 0 {
-            query = format!(
-                "SELECT audio_id FROM audio_metadata WHERE duration > {} AND duration < {}",
-                search.from_value / 1000000,
-                search.to_value / 1000000
+            (query, params) = (
+                "SELECT audio_id FROM audio_metadata WHERE duration > ? AND duration < ?",
+                vec![
+                    Value::Integer(search.from_value as i64 / 1000000),
+                    Value::Integer(search.to_value as i64 / 1000000),
+                ],
             );
         } else {
-            query = format!(
-                "SELECT audio_id FROM audio_metadata WHERE duration > {}",
-                search.from_value / 1000000
+            (query, params) = (
+                "SELECT audio_id FROM audio_metadata WHERE duration > ?",
+                vec![Value::Integer(search.from_value as i64 / 1000000)],
             );
         }
-        let (newvideos, newfiles) = search_audio_metadata(sql_connection.clone(), query);
+        let (newvideos, newfiles) =
+            search_audio_metadata(sql_connection.clone(), query.to_string(), params);
         for i in 0..newfiles.len() {
             if !used_files.contains(&newfiles[i].filepath) {
                 used_files.insert(newfiles[i].filepath.clone());
@@ -498,8 +534,10 @@ pub fn search_audio(
         }
     }
     if search.artist {
-        let query = format!("SELECT audio_id FROM artist_audio_map INNER JOIN artists ON artists.artist_id  = artist_audio_map.artist_id WHERE artists.artist_name LIKE '%{}%'", search.from_string);
-        let (newvideos, newfiles) = search_audio_metadata(sql_connection.clone(), query);
+        let query = "SELECT audio_id FROM artist_audio_map INNER JOIN artists ON artists.artist_id = artist_audio_map.artist_id WHERE artists.artist_name LIKE ? ESCAPE '\\'";
+        let params = vec![Value::Text(escape_like_term(&search.from_string))];
+        let (newvideos, newfiles) =
+            search_audio_metadata(sql_connection.clone(), query.to_string(), params);
         for i in 0..newfiles.len() {
             if !used_files.contains(&newfiles[i].filepath) {
                 used_files.insert(newfiles[i].filepath.clone());
@@ -509,8 +547,10 @@ pub fn search_audio(
         }
     }
     if search.title {
-        let query = format!("SELECT audio_id FROM album_audio_map INNER JOIN albums ON albums.album_id  = album_audio_map.album_id WHERE albums.album_name LIKE '%{}%'", search.from_string);
-        let (newvideos, newfiles) = search_audio_metadata(sql_connection.clone(), query);
+        let query = "SELECT audio_id FROM album_audio_map INNER JOIN albums ON album_audio_map.album_id = albums.album_id WHERE albums.album_name LIKE ? ESCAPE '\\'";
+        let params = vec![Value::Text(escape_like_term(&search.from_string))];
+        let (newvideos, newfiles) =
+            search_audio_metadata(sql_connection.clone(), query.to_string(), params);
         for i in 0..newfiles.len() {
             if !used_files.contains(&newfiles[i].filepath) {
                 used_files.insert(newfiles[i].filepath.clone());
@@ -520,8 +560,10 @@ pub fn search_audio(
         }
     }
     if search.album_artist {
-        let query = format!("SELECT audio_id FROM albumartist_audio_map INNER JOIN artists ON artists.artist_id  = albumartist_audio_map.albumartist_id WHERE artists.artist_name LIKE '%{}%'", search.from_string);
-        let (newvideos, newfiles) = search_audio_metadata(sql_connection.clone(), query);
+        let query = "SELECT audio_id FROM albumartist_audio_map INNER JOIN artists ON artists.artist_id = albumartist_audio_map.albumartist_id WHERE artists.artist_name LIKE ? ESCAPE '\\'";
+        let params = vec![Value::Text(escape_like_term(&search.from_string))];
+        let (newvideos, newfiles) =
+            search_audio_metadata(sql_connection.clone(), query.to_string(), params);
         for i in 0..newfiles.len() {
             if !used_files.contains(&newfiles[i].filepath) {
                 used_files.insert(newfiles[i].filepath.clone());
@@ -531,14 +573,10 @@ pub fn search_audio(
         }
     }
     if search.album {
-        let query = format!(
-            "SELECT audio_id FROM album_audio_map 
-                        INNER JOIN albums
-                        ON album_audio_map.album_id = albums.album_id 
-                        WHERE albums.album_name LIKE '%{}%'",
-            search.from_string
-        );
-        let (newvideos, newfiles) = search_audio_metadata(sql_connection.clone(), query);
+        let query = "SELECT audio_id FROM album_audio_map INNER JOIN albums ON album_audio_map.album_id = albums.album_id WHERE albums.album_name LIKE ? ESCAPE '\\'";
+        let params = vec![Value::Text(escape_like_term(&search.from_string))];
+        let (newvideos, newfiles) =
+            search_audio_metadata(sql_connection.clone(), query.to_string(), params);
         for i in 0..newfiles.len() {
             if !used_files.contains(&newfiles[i].filepath) {
                 used_files.insert(newfiles[i].filepath.clone());
@@ -548,11 +586,10 @@ pub fn search_audio(
         }
     }
     if search.composer {
-        let query = format!(
-            "SELECT audio_id FROM audio_metadata composer LIKE '%{}%'",
-            search.from_string
-        );
-        let (newvideos, newfiles) = search_audio_metadata(sql_connection.clone(), query);
+        let query = "SELECT audio_id FROM audio_metadata WHERE composer LIKE ? ESCAPE '\\'";
+        let params = vec![Value::Text(escape_like_term(&search.from_string))];
+        let (newvideos, newfiles) =
+            search_audio_metadata(sql_connection.clone(), query.to_string(), params);
         for i in 0..newfiles.len() {
             if !used_files.contains(&newfiles[i].filepath) {
                 used_files.insert(newfiles[i].filepath.clone());
@@ -562,11 +599,10 @@ pub fn search_audio(
         }
     }
     if search.genre {
-        let query = format!(
-            "SELECT audio_id FROM audio_metadata genre LIKE '%{}%'",
-            search.from_string
-        );
-        let (newvideos, newfiles) = search_audio_metadata(sql_connection.clone(), query);
+        let query = "SELECT audio_id FROM audio_metadata WHERE genre LIKE ? ESCAPE '\\'";
+        let params = vec![Value::Text(escape_like_term(&search.from_string))];
+        let (newvideos, newfiles) =
+            search_audio_metadata(sql_connection.clone(), query.to_string(), params);
         for i in 0..newfiles.len() {
             if !used_files.contains(&newfiles[i].filepath) {
                 used_files.insert(newfiles[i].filepath.clone());
@@ -576,19 +612,23 @@ pub fn search_audio(
         }
     }
     if search.release_date {
-        let query;
+        let (query, params);
         if search.to_date != 0 {
-            query = format!(
-                "SELECT audio_id FROM audio_metadata WHERE released > {} AND released < {}",
-                search.from_date, search.to_date
+            (query, params) = (
+                "SELECT audio_id FROM audio_metadata WHERE released > ? AND released < ?",
+                vec![
+                    Value::Integer(search.from_date),
+                    Value::Integer(search.to_date),
+                ],
             );
         } else {
-            query = format!(
-                "SELECT audio_id FROM audio_metadata WHERE released > {}",
-                search.from_date
+            (query, params) = (
+                "SELECT audio_id FROM audio_metadata WHERE released > ?",
+                vec![Value::Integer(search.from_date)],
             );
         }
-        let (newvideos, newfiles) = search_audio_metadata(sql_connection.clone(), query);
+        let (newvideos, newfiles) =
+            search_audio_metadata(sql_connection.clone(), query.to_string(), params);
         for i in 0..newfiles.len() {
             if !used_files.contains(&newfiles[i].filepath) {
                 used_files.insert(newfiles[i].filepath.clone());
@@ -598,8 +638,10 @@ pub fn search_audio(
         }
     }
     if search.tags {
-        let query = format!("SELECT media_id FROM tags_media_map INNER JOIN tags ON tags_media_map.tagmap_id = tags.tag_id WHERE tags.tag LIKE '%{}%'", search.from_string);
-        let (newaudios, newfiles) = search_audio_metadata(sql_connection.clone(), query);
+        let query = "SELECT media_id FROM tags_media_map INNER JOIN tags ON tags_media_map.tagmap_id = tags.tag_id WHERE tags.tag LIKE ? ESCAPE '\\'";
+        let params = vec![Value::Text(escape_like_term(&search.from_string))];
+        let (newaudios, newfiles) =
+            search_audio_metadata(sql_connection.clone(), query.to_string(), params);
         for i in 0..newfiles.len() {
             if !used_files.contains(&newfiles[i].filepath) {
                 used_files.insert(newfiles[i].filepath.clone());
@@ -615,6 +657,7 @@ pub fn search_audio(
 fn search_image_metadata(
     sql_connection: std::sync::Arc<std::sync::Mutex<rusqlite::Connection>>,
     query: String,
+    params: Vec<Value>,
 ) -> (Vec<ImageMetadata>, Vec<FileMetadata>) {
     let mut files = Vec::new();
     let mut images = Vec::new();
@@ -630,7 +673,7 @@ fn search_image_metadata(
     };
     match connection.prepare(&query) {
         Ok(mut statement) => {
-            match statement.query(params![]) {
+            match statement.query(rusqlite::params_from_iter(params.iter())) {
                 Ok(mut rows) => {
                     loop {
                         match rows.next() {
@@ -690,11 +733,10 @@ pub fn search_image(
         return (images, files);
     }
     if search.title {
-        let query = format!(
-            "SELECT image_id FROM image_metadata WHERE name LIKE '%{}%'",
-            search.from_string
-        );
-        let (newvideos, newfiles) = search_image_metadata(sql_connection.clone(), query);
+        let query = "SELECT image_id FROM image_metadata WHERE name LIKE ? ESCAPE '\\'";
+        let params = vec![Value::Text(escape_like_term(&search.from_string))];
+        let (newvideos, newfiles) =
+            search_image_metadata(sql_connection.clone(), query.to_string(), params);
         for i in 0..newfiles.len() {
             if !used_files.contains(&newfiles[i].filepath) {
                 used_files.insert(newfiles[i].filepath.clone());
@@ -704,11 +746,10 @@ pub fn search_image(
         }
     }
     if search.lense_model {
-        let query = format!(
-            "SELECT image_id FROM image_metadata WHERE LenseModel LIKE '%{}%'",
-            search.from_string
-        );
-        let (newvideos, newfiles) = search_image_metadata(sql_connection.clone(), query);
+        let query = "SELECT image_id FROM image_metadata WHERE LenseModel LIKE ? ESCAPE '\\'";
+        let params = vec![Value::Text(escape_like_term(&search.from_string))];
+        let (newvideos, newfiles) =
+            search_image_metadata(sql_connection.clone(), query.to_string(), params);
         for i in 0..newfiles.len() {
             if !used_files.contains(&newfiles[i].filepath) {
                 used_files.insert(newfiles[i].filepath.clone());
@@ -718,11 +759,10 @@ pub fn search_image(
         }
     }
     if search.focal_length {
-        let query = format!(
-            "SELECT image_id FROM image_metadata WHERE Focallength LIKE '%{}%'",
-            search.from_string
-        );
-        let (newvideos, newfiles) = search_image_metadata(sql_connection.clone(), query);
+        let query = "SELECT image_id FROM image_metadata WHERE Focallength LIKE ? ESCAPE '\\'";
+        let params = vec![Value::Text(escape_like_term(&search.from_string))];
+        let (newvideos, newfiles) =
+            search_image_metadata(sql_connection.clone(), query.to_string(), params);
         for i in 0..newfiles.len() {
             if !used_files.contains(&newfiles[i].filepath) {
                 used_files.insert(newfiles[i].filepath.clone());
@@ -732,11 +772,10 @@ pub fn search_image(
         }
     }
     if search.exposure_time {
-        let query = format!(
-            "SELECT image_id FROM image_metadata WHERE Exposuretime LIKE '%{}%'",
-            search.from_string
-        );
-        let (newvideos, newfiles) = search_image_metadata(sql_connection.clone(), query);
+        let query = "SELECT image_id FROM image_metadata WHERE Exposuretime LIKE ? ESCAPE '\\'";
+        let params = vec![Value::Text(escape_like_term(&search.from_string))];
+        let (newvideos, newfiles) =
+            search_image_metadata(sql_connection.clone(), query.to_string(), params);
         for i in 0..newfiles.len() {
             if !used_files.contains(&newfiles[i].filepath) {
                 used_files.insert(newfiles[i].filepath.clone());
@@ -746,11 +785,10 @@ pub fn search_image(
         }
     }
     if search.fnumber {
-        let query = format!(
-            "SELECT image_id FROM image_metadata WHERE FNumber LIKE '%{}%'",
-            search.from_string
-        );
-        let (newvideos, newfiles) = search_image_metadata(sql_connection.clone(), query);
+        let query = "SELECT image_id FROM image_metadata WHERE FNumber LIKE ? ESCAPE '\\'";
+        let params = vec![Value::Text(escape_like_term(&search.from_string))];
+        let (newvideos, newfiles) =
+            search_image_metadata(sql_connection.clone(), query.to_string(), params);
         for i in 0..newfiles.len() {
             if !used_files.contains(&newfiles[i].filepath) {
                 used_files.insert(newfiles[i].filepath.clone());
@@ -760,20 +798,23 @@ pub fn search_image(
         }
     }
     if search.gps_latitude && search.from_value != 0 {
-        let query;
+        let (query, params);
         if search.to_value != 0 {
-            query = format!(
-                "SELECT image_id FROM image_metadata WHERE GPSLatitude > {} AND GPSLatitude < {}",
-                search.from_value / 1000000,
-                search.to_value / 1000000
+            (query, params) = (
+                "SELECT image_id FROM image_metadata WHERE GPSLatitude > ? AND GPSLatitude < ?",
+                vec![
+                    Value::Integer(search.from_value as i64 / 1000000),
+                    Value::Integer(search.to_value as i64 / 1000000),
+                ],
             );
         } else {
-            query = format!(
-                "SELECT image_id FROM image_metadata WHERE GPSLatitude > {}",
-                search.from_value / 1000000
+            (query, params) = (
+                "SELECT image_id FROM image_metadata WHERE GPSLatitude > ?",
+                vec![Value::Integer(search.from_value as i64 / 1000000)],
             );
         }
-        let (newvideos, newfiles) = search_image_metadata(sql_connection.clone(), query);
+        let (newvideos, newfiles) =
+            search_image_metadata(sql_connection.clone(), query.to_string(), params);
         for i in 0..newfiles.len() {
             if !used_files.contains(&newfiles[i].filepath) {
                 used_files.insert(newfiles[i].filepath.clone());
@@ -783,20 +824,23 @@ pub fn search_image(
         }
     }
     if search.gps_longitude && search.from_value != 0 {
-        let query;
+        let (query, params);
         if search.to_value != 0 {
-            query = format!(
-                "SELECT image_id FROM image_metadata WHERE GPSLongitude > {} AND GPSLongitude < {}",
-                search.from_value / 1000000,
-                search.to_value / 1000000
+            (query, params) = (
+                "SELECT image_id FROM image_metadata WHERE GPSLongitude > ? AND GPSLongitude < ?",
+                vec![
+                    Value::Integer(search.from_value as i64 / 1000000),
+                    Value::Integer(search.to_value as i64 / 1000000),
+                ],
             );
         } else {
-            query = format!(
-                "SELECT image_id FROM image_metadata WHERE GPSLongitude > {}",
-                search.from_value / 1000000
+            (query, params) = (
+                "SELECT image_id FROM image_metadata WHERE GPSLongitude > ?",
+                vec![Value::Integer(search.from_value as i64 / 1000000)],
             );
         }
-        let (newvideos, newfiles) = search_image_metadata(sql_connection.clone(), query);
+        let (newvideos, newfiles) =
+            search_image_metadata(sql_connection.clone(), query.to_string(), params);
         for i in 0..newfiles.len() {
             if !used_files.contains(&newfiles[i].filepath) {
                 used_files.insert(newfiles[i].filepath.clone());
@@ -806,20 +850,23 @@ pub fn search_image(
         }
     }
     if search.gps_altitude && search.from_value != 0 {
-        let query;
+        let (query, params);
         if search.to_value != 0 {
-            query = format!(
-                "SELECT image_id FROM image_metadata WHERE GPSAltitude > {} AND GPSAltitude < {}",
-                search.from_value / 1000000,
-                search.to_value / 1000000
+            (query, params) = (
+                "SELECT image_id FROM image_metadata WHERE GPSAltitude > ? AND GPSAltitude < ?",
+                vec![
+                    Value::Integer(search.from_value as i64 / 1000000),
+                    Value::Integer(search.to_value as i64 / 1000000),
+                ],
             );
         } else {
-            query = format!(
-                "SELECT image_id FROM image_metadata WHERE GPSAltitude > {}",
-                search.from_value / 1000000
+            (query, params) = (
+                "SELECT image_id FROM image_metadata WHERE GPSAltitude > ?",
+                vec![Value::Integer(search.from_value as i64 / 1000000)],
             );
         }
-        let (newvideos, newfiles) = search_image_metadata(sql_connection.clone(), query);
+        let (newvideos, newfiles) =
+            search_image_metadata(sql_connection.clone(), query.to_string(), params);
         for i in 0..newfiles.len() {
             if !used_files.contains(&newfiles[i].filepath) {
                 used_files.insert(newfiles[i].filepath.clone());
@@ -828,20 +875,24 @@ pub fn search_image(
             }
         }
     }
-    if search.release_date && search.from_string.len() != 0 {
-        let query;
+    if search.release_date && search.from_date != 0 {
+        let (query, params);
         if search.to_date != 0 {
-            query = format!(
-                "SELECT image_id FROM image_metadata WHERE created > {} AND created < {}",
-                search.from_date, search.to_date
+            (query, params) = (
+                "SELECT image_id FROM image_metadata WHERE created > ? AND created < ?",
+                vec![
+                    Value::Integer(search.from_date),
+                    Value::Integer(search.to_date),
+                ],
             );
         } else {
-            query = format!(
-                "SELECT image_id FROM image_metadata WHERE created > {}",
-                search.from_date
+            (query, params) = (
+                "SELECT image_id FROM image_metadata WHERE created > ?",
+                vec![Value::Integer(search.from_date)],
             );
         }
-        let (newvideos, newfiles) = search_image_metadata(sql_connection.clone(), query);
+        let (newvideos, newfiles) =
+            search_image_metadata(sql_connection.clone(), query.to_string(), params);
         for i in 0..newfiles.len() {
             if !used_files.contains(&newfiles[i].filepath) {
                 used_files.insert(newfiles[i].filepath.clone());
@@ -851,8 +902,10 @@ pub fn search_image(
         }
     }
     if search.tags {
-        let query = format!("SELECT media_id FROM tags_media_map INNER JOIN tags ON tags_media_map.tagmap_id = tags.tag_id WHERE tags.tag LIKE '%{}%'", search.from_string);
-        let (newimages, newfiles) = search_image_metadata(sql_connection.clone(), query);
+        let query = "SELECT media_id FROM tags_media_map INNER JOIN tags ON tags_media_map.tagmap_id = tags.tag_id WHERE tags.tag LIKE ? ESCAPE '\\'";
+        let params = vec![Value::Text(escape_like_term(&search.from_string))];
+        let (newimages, newfiles) =
+            search_image_metadata(sql_connection.clone(), query.to_string(), params);
         for i in 0..newfiles.len() {
             if !used_files.contains(&newfiles[i].filepath) {
                 used_files.insert(newfiles[i].filepath.clone());
@@ -868,6 +921,7 @@ pub fn search_image(
 fn search_file_metadata(
     sql_connection: std::sync::Arc<std::sync::Mutex<rusqlite::Connection>>,
     query: String,
+    params: Vec<Value>,
 ) -> Vec<FileMetadata> {
     let mut files = Vec::new();
     let mut ids = Vec::new();
@@ -882,7 +936,7 @@ fn search_file_metadata(
     };
     match connection.prepare(&query) {
         Ok(mut statement) => {
-            match statement.query(params![]) {
+            match statement.query(rusqlite::params_from_iter(params.iter())) {
                 Ok(mut rows) => {
                     loop {
                         match rows.next() {
@@ -1170,42 +1224,55 @@ pub fn search_items(
             }
         }
     }
-    if search.creation_date && search.from_string.len() != 0 {
-        let query;
+    if search.creation_date && search.from_date != 0 {
+        let (query, params);
         if search.to_date != 0 {
-            query = format!("SELECT metadata_id FROM file_metadata WHERE creation_time > {} AND creation_time < {}", search.from_date, search.to_date);
+            (query, params) = (
+                "SELECT metadata_id FROM file_metadata WHERE creation_time > ? AND creation_time < ?",
+                vec![
+                    Value::Integer(search.from_date),
+                    Value::Integer(search.to_date),
+                ],
+            );
         } else {
-            query = format!(
-                "SELECT metadata_id FROM file_metadata WHERE creation_time > {}",
-                search.from_date
+            (query, params) = (
+                "SELECT metadata_id FROM file_metadata WHERE creation_time > ?",
+                vec![Value::Integer(search.from_date)],
             );
         }
-        let newfiles: Vec<FileMetadata> = search_file_metadata(sql_connection.clone(), query);
+        let newfiles: Vec<FileMetadata> =
+            search_file_metadata(sql_connection.clone(), query.to_string(), params);
         for file in newfiles {
             stuff_items(sql_connection.clone(), &search, &data, file);
         }
     }
-    if search.modification_date && search.from_string.len() != 0 {
-        let query;
+    if search.modification_date && search.from_date != 0 {
+        let (query, params);
         if search.to_date != 0 {
-            query = format!("SELECT metadata_id FROM file_metadata WHERE modification_time > {} AND modification_time < {}", search.from_date, search.to_date);
+            (query, params) = (
+                "SELECT metadata_id FROM file_metadata WHERE modification_time > ? AND modification_time < ?",
+                vec![
+                    Value::Integer(search.from_date),
+                    Value::Integer(search.to_date),
+                ],
+            );
         } else {
-            query = format!(
-                "SELECT metadata_id FROM file_metadata WHERE modification_time > {}",
-                search.from_date
+            (query, params) = (
+                "SELECT metadata_id FROM file_metadata WHERE modification_time > ?",
+                vec![Value::Integer(search.from_date)],
             );
         }
-        let newfiles: Vec<FileMetadata> = search_file_metadata(sql_connection.clone(), query);
+        let newfiles: Vec<FileMetadata> =
+            search_file_metadata(sql_connection.clone(), query.to_string(), params);
         for file in newfiles {
             stuff_items(sql_connection.clone(), &search, &data, file);
         }
     }
-    if search.filepath {
-        let query = format!(
-            "SELECT metadata_id FROM file_metadata WHERE filepath LIKE '%{}%'",
-            search.from_string
-        );
-        let newfiles: Vec<FileMetadata> = search_file_metadata(sql_connection.clone(), query);
+    if search.filepath && !search.from_string.is_empty() {
+        let query = "SELECT metadata_id FROM file_metadata WHERE filepath LIKE ? ESCAPE '\\'";
+        let params = vec![Value::Text(escape_like_term(&search.from_string))];
+        let newfiles: Vec<FileMetadata> =
+            search_file_metadata(sql_connection.clone(), query.to_string(), params);
         for file in newfiles {
             stuff_items(sql_connection.clone(), &search, &data, file);
         }
@@ -1385,7 +1452,8 @@ pub fn insert_collection(
         }
     }
     for i in 0..metadata.episodes.len() {
-        let path = crate::parsers::osstr_to_string(metadata.episodes[i].path.clone().into_os_string());
+        let path =
+            crate::parsers::osstr_to_string(metadata.episodes[i].path.clone().into_os_string());
         match connection.execute(
             "INSERT INTO collections_map (collection_id, episode_id, series, episode, title, path, poster, thumb) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
@@ -1471,7 +1539,9 @@ pub fn delete_collection(
     // clear the entry in the candidates list without deleting it
     let ret = connection.execute(
         "DELETE FROM file_metadata WHERE filepath = ?1",
-        params![&crate::parsers::osstr_to_string(metadata.path.clone().into_os_string())],
+        params![&crate::parsers::osstr_to_string(
+            metadata.path.clone().into_os_string()
+        )],
     );
     if ret.is_err() {
         log::error!("Failed to delete candidate {:?}!", metadata.path);
@@ -1525,7 +1595,10 @@ pub fn collection(
                                 match row.get(1) {
                                     Ok(val) => v.file_id = val,
                                     Err(error) => {
-                                        log::error!("Failed to read file_id for collections: {}", error);
+                                        log::error!(
+                                            "Failed to read file_id for collections: {}",
+                                            error
+                                        );
                                         continue;
                                     }
                                 }
@@ -1542,21 +1615,30 @@ pub fn collection(
                                 match row.get(3) {
                                     Ok(val) => v.poster = val,
                                     Err(error) => {
-                                        log::error!("Failed to read poster for vidcollectionseo: {}", error);
+                                        log::error!(
+                                            "Failed to read poster for vidcollectionseo: {}",
+                                            error
+                                        );
                                         continue;
                                     }
                                 }
                                 match row.get(4) {
                                     Ok(val) => v.thumb = val,
                                     Err(error) => {
-                                        log::error!("Failed to read thumb for collections: {}", error);
+                                        log::error!(
+                                            "Failed to read thumb for collections: {}",
+                                            error
+                                        );
                                         continue;
                                     }
                                 }
                                 match row.get(5) {
                                     Ok(val) => v.description = val,
                                     Err(error) => {
-                                        log::error!("Failed to read description for collections: {}", error);
+                                        log::error!(
+                                            "Failed to read description for collections: {}",
+                                            error
+                                        );
                                         continue;
                                     }
                                 }
@@ -1564,9 +1646,12 @@ pub fn collection(
                                     Ok(val) => {
                                         let path: String = val;
                                         v.path = PathBuf::from(&path);
-                                    },
+                                    }
                                     Err(error) => {
-                                        log::error!("Failed to read path for collections: {}", error);
+                                        log::error!(
+                                            "Failed to read path for collections: {}",
+                                            error
+                                        );
                                         continue;
                                     }
                                 };
@@ -1613,7 +1698,10 @@ pub fn collection(
                                         e.file_id = val;
                                     }
                                     Err(error) => {
-                                        log::error!("Failed to read file_id for collections_map: {}", error);
+                                        log::error!(
+                                            "Failed to read file_id for collections_map: {}",
+                                            error
+                                        );
                                         continue;
                                     }
                                 };
@@ -1622,7 +1710,10 @@ pub fn collection(
                                         e.series = val;
                                     }
                                     Err(error) => {
-                                        log::error!("Failed to read series for vidcollections_mapeo: {}", error);
+                                        log::error!(
+                                            "Failed to read series for vidcollections_mapeo: {}",
+                                            error
+                                        );
                                         continue;
                                     }
                                 };
@@ -1631,14 +1722,20 @@ pub fn collection(
                                         e.episode = val;
                                     }
                                     Err(error) => {
-                                        log::error!("Failed to read episode for collections_map: {}", error);
+                                        log::error!(
+                                            "Failed to read episode for collections_map: {}",
+                                            error
+                                        );
                                         continue;
                                     }
                                 };
                                 match row.get(3) {
                                     Ok(val) => e.title = val,
                                     Err(error) => {
-                                        log::error!("Failed to read title for collections_map: {}", error);
+                                        log::error!(
+                                            "Failed to read title for collections_map: {}",
+                                            error
+                                        );
                                         continue;
                                     }
                                 };
@@ -1646,23 +1743,32 @@ pub fn collection(
                                     Ok(val) => {
                                         let path: String = val;
                                         e.path = PathBuf::from(&path);
-                                    },
+                                    }
                                     Err(error) => {
-                                        log::error!("Failed to read path for collections_map: {}", error);
+                                        log::error!(
+                                            "Failed to read path for collections_map: {}",
+                                            error
+                                        );
                                         continue;
                                     }
                                 };
                                 match row.get(5) {
                                     Ok(val) => e.poster = val,
                                     Err(error) => {
-                                        log::error!("Failed to read poster for collections_map: {}", error);
+                                        log::error!(
+                                            "Failed to read poster for collections_map: {}",
+                                            error
+                                        );
                                         continue;
                                     }
                                 };
                                 match row.get(6) {
                                     Ok(val) => e.thumb = val,
                                     Err(error) => {
-                                        log::error!("Failed to read thumb for collections_map: {}", error);
+                                        log::error!(
+                                            "Failed to read thumb for collections_map: {}",
+                                            error
+                                        );
                                         continue;
                                     }
                                 };
@@ -1688,9 +1794,9 @@ pub fn collection(
             log::error!("could not prepare SQL statement: {}", err);
         }
     }
-    let query = "SELECT tag_id, tag FROM tags 
-                        INNER JOIN tags_media_map 
-                        ON tags_media_map.tagmap_id = tags.tag_id 
+    let query = "SELECT tag_id, tag FROM tags
+                        INNER JOIN tags_media_map
+                        ON tags_media_map.tagmap_id = tags.tag_id
                         WHERE tags_media_map.media_id = ?1";
     match connection.prepare(query) {
         Ok(mut statement) => {
@@ -2445,14 +2551,20 @@ pub fn video_by_id(
                                 match row.get(7) {
                                     Ok(val) => v.framerate = val,
                                     Err(error) => {
-                                        log::error!("Failed to read framerate for video: {}", error);
+                                        log::error!(
+                                            "Failed to read framerate for video: {}",
+                                            error
+                                        );
                                         continue;
                                     }
                                 }
                                 match row.get(8) {
                                     Ok(val) => v.description = val,
                                     Err(error) => {
-                                        log::error!("Failed to read description for video: {}", error);
+                                        log::error!(
+                                            "Failed to read description for video: {}",
+                                            error
+                                        );
                                         continue;
                                     }
                                 }
@@ -2595,9 +2707,9 @@ pub fn video_by_id(
             log::error!("could not prepare SQL statement: {}", err);
         }
     }
-    let query = "SELECT person_name FROM people 
-                        INNER JOIN directors 
-                        ON directors.director_id = people.person_id 
+    let query = "SELECT person_name FROM people
+                        INNER JOIN directors
+                        ON directors.director_id = people.person_id
                         WHERE directors.video_id = ?1";
     match connection.prepare(query) {
         Ok(mut statement) => {
@@ -2632,9 +2744,9 @@ pub fn video_by_id(
             log::error!("could not prepare SQL statement: {}", err);
         }
     }
-    let query = "SELECT person_name FROM people 
-                        INNER JOIN actors 
-                        ON actors.actor_id = people.person_id 
+    let query = "SELECT person_name FROM people
+                        INNER JOIN actors
+                        ON actors.actor_id = people.person_id
                         WHERE actors.video_id = ?1";
     match connection.prepare(query) {
         Ok(mut statement) => {
@@ -2669,9 +2781,9 @@ pub fn video_by_id(
             log::error!("could not prepare SQL statement: {}", err);
         }
     }
-    let query = "SELECT tag_id, tag FROM tags 
-                        INNER JOIN tags_media_map 
-                        ON tags_media_map.tagmap_id = tags.tag_id 
+    let query = "SELECT tag_id, tag FROM tags
+                        INNER JOIN tags_media_map
+                        ON tags_media_map.tagmap_id = tags.tag_id
                         WHERE tags_media_map.media_id = ?1";
     match connection.prepare(query) {
         Ok(mut statement) => {
@@ -2804,14 +2916,20 @@ pub fn video(
                                 match row.get(7) {
                                     Ok(val) => v.framerate = val,
                                     Err(error) => {
-                                        log::error!("Failed to read framerate for video: {}", error);
+                                        log::error!(
+                                            "Failed to read framerate for video: {}",
+                                            error
+                                        );
                                         continue;
                                     }
                                 }
                                 match row.get(8) {
                                     Ok(val) => v.description = val,
                                     Err(error) => {
-                                        log::error!("Failed to read description for video: {}", error);
+                                        log::error!(
+                                            "Failed to read description for video: {}",
+                                            error
+                                        );
                                         continue;
                                     }
                                 }
@@ -3021,9 +3139,9 @@ pub fn video(
             log::error!("could not prepare SQL statement: {}", err);
         }
     }
-    let query = "SELECT person_name FROM people 
-                        INNER JOIN directors 
-                        ON directors.director_id = people.person_id 
+    let query = "SELECT person_name FROM people
+                        INNER JOIN directors
+                        ON directors.director_id = people.person_id
                         WHERE directors.video_id = ?1";
     match connection.prepare(query) {
         Ok(mut statement) => {
@@ -3058,9 +3176,9 @@ pub fn video(
             log::error!("could not prepare SQL statement: {}", err);
         }
     }
-    let query = "SELECT person_name FROM people 
-                        INNER JOIN actors 
-                        ON actors.actor_id = people.person_id 
+    let query = "SELECT person_name FROM people
+                        INNER JOIN actors
+                        ON actors.actor_id = people.person_id
                         WHERE actors.video_id = ?1";
     match connection.prepare(query) {
         Ok(mut statement) => {
@@ -3095,9 +3213,9 @@ pub fn video(
             log::error!("could not prepare SQL statement: {}", err);
         }
     }
-    let query = "SELECT tag_id, tag FROM tags 
-                        INNER JOIN tags_media_map 
-                        ON tags_media_map.tagmap_id = tags.tag_id 
+    let query = "SELECT tag_id, tag FROM tags
+                        INNER JOIN tags_media_map
+                        ON tags_media_map.tagmap_id = tags.tag_id
                         WHERE tags_media_map.media_id = ?1";
     match connection.prepare(query) {
         Ok(mut statement) => {
@@ -3667,9 +3785,9 @@ pub fn audio_by_id(
             log::error!("could not prepare SQL statement: {}", err);
         }
     }
-    let query = "SELECT artist_name FROM artists 
-                        INNER JOIN artist_audio_map 
-                        ON artist_audio_map.artist_id = artists.artist_id 
+    let query = "SELECT artist_name FROM artists
+                        INNER JOIN artist_audio_map
+                        ON artist_audio_map.artist_id = artists.artist_id
                         WHERE artist_audio_map.audio_id = ?1";
     match connection.prepare(query) {
         Ok(mut statement) => {
@@ -3707,9 +3825,9 @@ pub fn audio_by_id(
             log::error!("could not prepare SQL statement: {}", err);
         }
     }
-    let query = "SELECT album_name FROM albums 
-                        INNER JOIN album_audio_map 
-                        ON album_audio_map.album_id = albums.album_id 
+    let query = "SELECT album_name FROM albums
+                        INNER JOIN album_audio_map
+                        ON album_audio_map.album_id = albums.album_id
                         WHERE album_audio_map.audio_id = ?1";
     match connection.prepare(query) {
         Ok(mut statement) => {
@@ -3744,9 +3862,9 @@ pub fn audio_by_id(
             log::error!("could not prepare SQL statement: {}", err);
         }
     }
-    let query = "SELECT artist_name FROM artists 
-                        INNER JOIN albumartist_audio_map 
-                        ON albumartist_audio_map.albumartist_id = artists.artist_id 
+    let query = "SELECT artist_name FROM artists
+                        INNER JOIN albumartist_audio_map
+                        ON albumartist_audio_map.albumartist_id = artists.artist_id
                         WHERE albumartist_audio_map.audio_id = ?1";
     match connection.prepare(query) {
         Ok(mut statement) => {
@@ -3893,9 +4011,9 @@ pub fn audio_by_id(
             log::error!("could not prepare SQL statement: {}", err);
         }
     }
-    let query = "SELECT tag_id, tag FROM tags 
-                        INNER JOIN tags_media_map 
-                        ON tags_media_map.tagmap_id = tags.tag_id 
+    let query = "SELECT tag_id, tag FROM tags
+                        INNER JOIN tags_media_map
+                        ON tags_media_map.tagmap_id = tags.tag_id
                         WHERE tags_media_map.media_id = ?1";
     match connection.prepare(query) {
         Ok(mut statement) => {
@@ -4061,9 +4179,9 @@ pub fn audio(
             log::error!("could not prepare SQL statement: {}", err);
         }
     }
-    let query = "SELECT artist_name FROM artists 
-                        INNER JOIN artist_audio_map 
-                        ON artist_audio_map.artist_id = artists.artist_id 
+    let query = "SELECT artist_name FROM artists
+                        INNER JOIN artist_audio_map
+                        ON artist_audio_map.artist_id = artists.artist_id
                         WHERE artist_audio_map.audio_id = ?1";
     match connection.prepare(query) {
         Ok(mut statement) => {
@@ -4101,9 +4219,9 @@ pub fn audio(
             log::error!("could not prepare SQL statement: {}", err);
         }
     }
-    let query = "SELECT album_name FROM albums 
-                        INNER JOIN album_audio_map 
-                        ON album_audio_map.album_id = albums.album_id 
+    let query = "SELECT album_name FROM albums
+                        INNER JOIN album_audio_map
+                        ON album_audio_map.album_id = albums.album_id
                         WHERE album_audio_map.audio_id = ?1";
     match connection.prepare(query) {
         Ok(mut statement) => {
@@ -4138,9 +4256,9 @@ pub fn audio(
             log::error!("could not prepare SQL statement: {}", err);
         }
     }
-    let query = "SELECT artist_name FROM artists 
-                        INNER JOIN albumartist_audio_map 
-                        ON albumartist_audio_map.albumartist_id = artists.artist_id 
+    let query = "SELECT artist_name FROM artists
+                        INNER JOIN albumartist_audio_map
+                        ON albumartist_audio_map.albumartist_id = artists.artist_id
                         WHERE albumartist_audio_map.audio_id = ?1";
     match connection.prepare(query) {
         Ok(mut statement) => {
@@ -4287,9 +4405,9 @@ pub fn audio(
             log::error!("could not prepare SQL statement: {}", err);
         }
     }
-    let query = "SELECT tag_id, tag FROM tags 
-                        INNER JOIN tags_media_map 
-                        ON tags_media_map.tagmap_id = tags.tag_id 
+    let query = "SELECT tag_id, tag FROM tags
+                        INNER JOIN tags_media_map
+                        ON tags_media_map.tagmap_id = tags.tag_id
                         WHERE tags_media_map.media_id = ?1";
     match connection.prepare(query) {
         Ok(mut statement) => {
@@ -4413,7 +4531,7 @@ pub fn insert_image(
     ) {
         Ok(_retval) => {}, //log::warn!("Inserted {} image with ID {} and location {} into candidates.", video.id, video.index, candidate_id),
         Err(error) => {
-            log::error!("Failed to insert image into  database: {}", error);
+            log::warn!("Failed to insert image into  database, updating the existing entry instead: {}", error);
             drop(connection);
             delete_image(sql_connection.clone(), metadata, data);
             insert_image(sql_connection.clone(), metadata, statdata, data);
@@ -4670,9 +4788,9 @@ pub fn image_by_id(
             log::error!("could not prepare SQL statement: {}", err);
         }
     }
-    let query = "SELECT tag_id, tag FROM tags 
-                        INNER JOIN tags_media_map 
-                        ON tags_media_map.tagmap_id = tags.tag_id 
+    let query = "SELECT tag_id, tag FROM tags
+                        INNER JOIN tags_media_map
+                        ON tags_media_map.tagmap_id = tags.tag_id
                         WHERE tags_media_map.media_id = ?1";
     match connection.prepare(query) {
         Ok(mut statement) => {
@@ -4912,9 +5030,9 @@ pub fn image(
             log::error!("could not prepare SQL statement: {}", err);
         }
     }
-    let query = "SELECT tag_id, tag FROM tags 
-                        INNER JOIN tags_media_map 
-                        ON tags_media_map.tagmap_id = tags.tag_id 
+    let query = "SELECT tag_id, tag FROM tags
+                        INNER JOIN tags_media_map
+                        ON tags_media_map.tagmap_id = tags.tag_id
                         WHERE tags_media_map.media_id = ?1";
     match connection.prepare(query) {
         Ok(mut statement) => {
@@ -5024,7 +5142,10 @@ pub fn file_by_id(
                                 match row.get(1) {
                                     Ok(val) => v.creation_time = val,
                                     Err(error) => {
-                                        log::error!("Failed to read creation_time for file: {}", error);
+                                        log::error!(
+                                            "Failed to read creation_time for file: {}",
+                                            error
+                                        );
                                         continue;
                                     }
                                 }
@@ -5048,7 +5169,10 @@ pub fn file_by_id(
                                 match row.get(4) {
                                     Ok(val) => v.metadata_id = val,
                                     Err(error) => {
-                                        log::error!("Failed to read metadata_id for file: {}", error);
+                                        log::error!(
+                                            "Failed to read metadata_id for file: {}",
+                                            error
+                                        );
                                         continue;
                                     }
                                 }
@@ -5115,7 +5239,10 @@ pub fn file(
                                 match row.get(1) {
                                     Ok(val) => v.creation_time = val,
                                     Err(error) => {
-                                        log::error!("Failed to read creation_time for file: {}", error);
+                                        log::error!(
+                                            "Failed to read creation_time for file: {}",
+                                            error
+                                        );
                                         continue;
                                     }
                                 }
@@ -5139,7 +5266,10 @@ pub fn file(
                                 match row.get(4) {
                                     Ok(val) => v.metadata_id = val,
                                     Err(error) => {
-                                        log::error!("Failed to read metadata_id for file: {}", error);
+                                        log::error!(
+                                            "Failed to read metadata_id for file: {}",
+                                            error
+                                        );
                                         continue;
                                     }
                                 }
@@ -5206,7 +5336,10 @@ pub fn files(
                                 match row.get(1) {
                                     Ok(val) => s.creation_time = val,
                                     Err(error) => {
-                                        log::error!("Failed to read creation_time for file: {}", error);
+                                        log::error!(
+                                            "Failed to read creation_time for file: {}",
+                                            error
+                                        );
                                         continue;
                                     }
                                 }
@@ -5230,7 +5363,10 @@ pub fn files(
                                 match row.get(4) {
                                     Ok(val) => s.metadata_id = val,
                                     Err(error) => {
-                                        log::error!("Failed to read metadata_id for file: {}", error);
+                                        log::error!(
+                                            "Failed to read metadata_id for file: {}",
+                                            error
+                                        );
                                         continue;
                                     }
                                 }
@@ -5319,13 +5455,16 @@ pub fn insert_file(
         }
     };
     match connection.execute(
-        "INSERT INTO file_metadata (filepath, creation_time, modification_time, 
+        "INSERT INTO file_metadata (filepath, creation_time, modification_time,
             file_type) VALUES (?1, ?2, ?3, ?4)",
         params![&path, &creation_time, &modification_time, &file_type],
     ) {
         Ok(_retval) => {} //log::warn!("Inserted {} video with ID {} and location {} into candidates.", video.id, video.index, candidate_id),
         Err(error) => {
-            log::error!("Failed to insert file into  database: {}", error);
+            log::warn!(
+                "Failed to insert file into  database, updating the existing entry instead: {}",
+                error
+            );
             drop(connection);
             delete_file(sql_connection.clone(), path, data);
             insert_file(sql_connection.clone(), path, metadata, file_type, data);
@@ -5434,18 +5573,18 @@ pub fn insert_search(
     };
     match connection.execute(
         "INSERT INTO searches (from_string, from_value, from_date, to_string, to_value, to_date,
-                image, video, audio, filepath, title, description, 
+                image, video, audio, filepath, title, description,
                 actor, director, artist, album_artist,
-                duration, creation_date, modification_date, release_date, 
+                duration, creation_date, modification_date, release_date,
                 lense_model, focal_length, exposure_time, fnumber,
-                gps_latitude, gps_longitude, gps_altitude, 
-                album, composer, genre, tags) VALUES 
-                (?1, ?2, ?3, ?4, ?5, ?6, 
-                ?7, ?8, ?9, ?10, ?11, ?12, 
-                ?13, ?14, ?15, ?16, 
-                ?17, ?18, ?19, ?20, 
-                ?21, ?22, ?23, ?24, 
-                ?25, ?26, ?27, 
+                gps_latitude, gps_longitude, gps_altitude,
+                album, composer, genre, tags) VALUES
+                (?1, ?2, ?3, ?4, ?5, ?6,
+                ?7, ?8, ?9, ?10, ?11, ?12,
+                ?13, ?14, ?15, ?16,
+                ?17, ?18, ?19, ?20,
+                ?21, ?22, ?23, ?24,
+                ?25, ?26, ?27,
                 ?28, ?29, ?30, ?31)",
         params![
             &s.from_string.to_ascii_lowercase(),
@@ -5914,10 +6053,10 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
         // file_type: 0 other file, 1 image, 2, video, 3 audio
         match connection.execute(
             "CREATE TABLE file_metadata (
-                filepath TEXT NOT NULL unique NOT NULL, 
-                creation_time UNSIGNED BIG INT, 
-                modification_time UNSIGNED BIG INT, 
-                file_type INT,   
+                filepath TEXT NOT NULL unique NOT NULL,
+                creation_time UNSIGNED BIG INT,
+                modification_time UNSIGNED BIG INT,
+                file_type INT,
                 metadata_id INTEGER,
                 PRIMARY KEY(metadata_id AUTOINCREMENT)
             )",
@@ -5943,10 +6082,10 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
             "
             CREATE TABLE video_metadata (
                 video_id INTEGER PRIMARY KEY,
-                name  TEXT NOT NULL, 
-                title  TEXT NOT NULL, 
-                released UNSIGNED BIG INT NOT NULL, 
-                poster  TEXT, 
+                name  TEXT NOT NULL,
+                title  TEXT NOT NULL,
+                released UNSIGNED BIG INT NOT NULL,
+                poster  TEXT,
                 thumb   TEXT,
                 subtitles BIG INT,
                 duration INT,
@@ -5976,9 +6115,9 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
         match connection.execute(
             "
             CREATE TABLE subtitles (
-                subtitle_id INTEGER, 
-                video_id INTEGER, 
-                subpath TEXT, 
+                subtitle_id INTEGER,
+                video_id INTEGER,
+                subpath TEXT,
                 PRIMARY KEY(subtitle_id AUTOINCREMENT)
             )",
             [],
@@ -6002,9 +6141,9 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
         match connection.execute(
             "
             CREATE TABLE audiolangs (
-                audiolang_id INTEGER, 
-                video_id INTEGER, 
-                audiolang TEXT, 
+                audiolang_id INTEGER,
+                video_id INTEGER,
+                audiolang TEXT,
                 PRIMARY KEY(audiolang_id AUTOINCREMENT)
             )",
             [],
@@ -6028,9 +6167,9 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
         match connection.execute(
             "
             CREATE TABLE sublangs (
-                sublang_id INTEGER, 
-                video_id INTEGER, 
-                sublang TEXT, 
+                sublang_id INTEGER,
+                video_id INTEGER,
+                sublang TEXT,
                 PRIMARY KEY(sublang_id AUTOINCREMENT)
             )",
             [],
@@ -6054,9 +6193,9 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
         match connection.execute(
             "
             CREATE TABLE chapters (
-                chapter_id INTEGER, 
-                video_id INTEGER, 
-                title TEXT, 
+                chapter_id INTEGER,
+                video_id INTEGER,
+                title TEXT,
                 start DOUBLE,
                 end DOUBLE,
                 PRIMARY KEY(chapter_id AUTOINCREMENT)
@@ -6082,8 +6221,8 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
         match connection.execute(
             "
         CREATE TABLE people (
-            person_id INTEGER, 
-            person_name TEXT, 
+            person_id INTEGER,
+            person_name TEXT,
             PRIMARY KEY(person_id AUTOINCREMENT)
         )",
             [],
@@ -6105,8 +6244,8 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
             "
             CREATE TABLE directors (
                 entry_id INTEGER,
-                director_id INTEGER, 
-                video_id INTEGER, 
+                director_id INTEGER,
+                video_id INTEGER,
                 PRIMARY KEY(entry_id AUTOINCREMENT)
             )",
             [],
@@ -6131,8 +6270,8 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
             "
             CREATE TABLE actors (
                 entry_id INTEGER,
-                actor_id INTEGER, 
-                video_id INTEGER, 
+                actor_id INTEGER,
+                video_id INTEGER,
                 PRIMARY KEY(entry_id AUTOINCREMENT)
             )",
             [],
@@ -6198,8 +6337,8 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
             "
             CREATE TABLE collections_map (
                 entry_id INTEGER,
-                collection_id INTEGER, 
-                episode_id INTEGER, 
+                collection_id INTEGER,
+                episode_id INTEGER,
                 series INTEGER,
                 episode INTEGER,
                 title TEXT,
@@ -6230,10 +6369,10 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
             "
             CREATE TABLE audio_metadata (
                 audio_id INTEGER PRIMARY KEY,
-                name  TEXT NOT NULL, 
-                title  TEXT NOT NULL, 
-                released UNSIGNED BIG INT NOT NULL, 
-                poster  TEXT, 
+                name  TEXT NOT NULL,
+                title  TEXT NOT NULL,
+                released UNSIGNED BIG INT NOT NULL,
+                poster  TEXT,
                 thumb   TEXT,
                 genre   TEXT,
                 composer TEXT,
@@ -6252,8 +6391,8 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
         match connection.execute(
             "
             CREATE TABLE albums (
-                album_id INTEGER, 
-                album_name TEXT, 
+                album_id INTEGER,
+                album_name TEXT,
                 PRIMARY KEY(album_id AUTOINCREMENT)
             )",
             [],
@@ -6277,7 +6416,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
             entry_id INTEGER,
             audio_id INTEGER,
             album_id INTEGER,
-            PRIMARY KEY(entry_id AUTOINCREMENT) 
+            PRIMARY KEY(entry_id AUTOINCREMENT)
             )",
             [],
         ) {
@@ -6301,8 +6440,8 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
         match connection.execute(
             "
             CREATE TABLE artists (
-                artist_id INTEGER, 
-                artist_name TEXT, 
+                artist_id INTEGER,
+                artist_name TEXT,
                 PRIMARY KEY(artist_id AUTOINCREMENT)
             )",
             [],
@@ -6328,7 +6467,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
         CREATE TABLE artist_audio_map (
             entry_id INTEGER,
             audio_id INTEGER,
-            artist_id INTEGER, 
+            artist_id INTEGER,
             PRIMARY KEY(entry_id AUTOINCREMENT)
             )",
             [],
@@ -6355,7 +6494,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
         CREATE TABLE albumartist_audio_map (
             entry_id INTEGER,
             audio_id INTEGER,
-            albumartist_id INTEGER, 
+            albumartist_id INTEGER,
             PRIMARY KEY(entry_id AUTOINCREMENT)
             )",
             [],
@@ -6379,9 +6518,9 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
         match connection.execute(
             "
             CREATE TABLE indexes (
-                index_id INTEGER, 
-                audio_id INTEGER, 
-                title TEXT, 
+                index_id INTEGER,
+                audio_id INTEGER,
+                title TEXT,
                 start DOUBLE,
                 end DOUBLE,
                 PRIMARY KEY(index_id AUTOINCREMENT)
@@ -6407,9 +6546,9 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
         match connection.execute(
             "
             CREATE TABLE lyrics (
-                lyrics_id INTEGER, 
-                audio_id INTEGER, 
-                lyricsfile TEXT, 
+                lyrics_id INTEGER,
+                audio_id INTEGER,
+                lyricsfile TEXT,
                 PRIMARY KEY(lyrics_id AUTOINCREMENT)
             )",
             [],
@@ -6435,10 +6574,10 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
             "
             CREATE TABLE image_metadata (
                 image_id INTEGER PRIMARY KEY,
-                name     TEXT NOT NULL, 
-                path     TEXT NOT NULL, 
-                created  UNSIGNED BIG INT NOT NULL, 
-                resized  TEXT, 
+                name     TEXT NOT NULL,
+                path     TEXT NOT NULL,
+                created  UNSIGNED BIG INT NOT NULL,
+                resized  TEXT,
                 thumb    TEXT,
                 width    INTEGER,
                 height   INTEGER,
@@ -6481,8 +6620,8 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
         match connection.execute(
             "
             CREATE TABLE tags (
-                tag_id INTEGER, 
-                tag TEXT, 
+                tag_id INTEGER,
+                tag TEXT,
                 PRIMARY KEY(tag_id AUTOINCREMENT)
             )",
             [],
@@ -6505,7 +6644,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
             "
             CREATE TABLE tags_media_map (
                 element_id INTEGER,
-                media_id INTEGER, 
+                media_id INTEGER,
                 tagmap_id INTEGER,
                 PRIMARY KEY(element_id AUTOINCREMENT)
             )",
@@ -6541,37 +6680,37 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
             "
             CREATE TABLE searches (
                 search_id INTEGER,
-                from_string  TEXT, 
-                from_value DOUBLE, 
+                from_string  TEXT,
+                from_value DOUBLE,
                 from_date INTEGER,
-                to_string  TEXT, 
-                to_value DOUBLE, 
+                to_string  TEXT,
+                to_value DOUBLE,
                 to_date INTEGER,
-                image  INTEGER, 
-                video  INTEGER, 
-                audio  INTEGER, 
-                filepath  INTEGER, 
-                title  INTEGER, 
-                description  INTEGER, 
-                actor  INTEGER, 
-                director  INTEGER, 
-                artist  INTEGER, 
-                album_artist  INTEGER, 
-                duration  INTEGER, 
-                creation_date  INTEGER, 
-                modification_date  INTEGER, 
-                release_date  INTEGER, 
-                lense_model  INTEGER, 
-                focal_length  INTEGER, 
-                exposure_time  INTEGER, 
-                fnumber  INTEGER, 
-                gps_latitude  INTEGER, 
-                gps_longitude  INTEGER, 
+                image  INTEGER,
+                video  INTEGER,
+                audio  INTEGER,
+                filepath  INTEGER,
+                title  INTEGER,
+                description  INTEGER,
+                actor  INTEGER,
+                director  INTEGER,
+                artist  INTEGER,
+                album_artist  INTEGER,
+                duration  INTEGER,
+                creation_date  INTEGER,
+                modification_date  INTEGER,
+                release_date  INTEGER,
+                lense_model  INTEGER,
+                focal_length  INTEGER,
+                exposure_time  INTEGER,
+                fnumber  INTEGER,
+                gps_latitude  INTEGER,
+                gps_longitude  INTEGER,
                 gps_altitude  INTEGER,
-                album  INTEGER, 
-                composer  INTEGER, 
-                genre  INTEGER,  
-                tags  INTEGER, 
+                album  INTEGER,
+                composer  INTEGER,
+                genre  INTEGER,
+                tags  INTEGER,
                 PRIMARY KEY(search_id AUTOINCREMENT)
             )",
             [],
@@ -6586,4 +6725,117 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
         connection = Connection::open(sqlite_file)?;
     }
     Ok(connection)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn escape_like_term_wraps_and_escapes() {
+        assert_eq!(escape_like_term("abc"), "%abc%");
+        assert_eq!(escape_like_term(""), "%%");
+        // Wildcards in user input must be neutralised so they match literally.
+        assert_eq!(escape_like_term("100%"), "%100\\%%");
+        assert_eq!(escape_like_term("a_b"), "%a\\_b%");
+        // The escape character itself must be escaped.
+        assert_eq!(escape_like_term("a\\b"), "%a\\\\b%");
+    }
+
+    #[test]
+    fn search_data_partial_eq_distinguishes_gps() {
+        let base = SearchData::default();
+        assert_eq!(base, SearchData::default());
+
+        // Two fields that only differ must NOT compare equal. (Regression
+        // guard for the previously duplicated gps_longitude comparison.)
+        let mut lon = SearchData::default();
+        lon.gps_longitude = true;
+        assert_ne!(base, lon);
+
+        let mut lat = SearchData::default();
+        lat.gps_latitude = true;
+        assert_ne!(base, lat);
+    }
+
+    /// In-memory DB with the minimal schema the search paths need, plus one
+    /// video whose title contains a single quote (to exercise LIKE escaping
+    /// and parameterized binding).
+    fn test_db() -> std::sync::Arc<std::sync::Mutex<rusqlite::Connection>> {
+        let conn = rusqlite::Connection::open_in_memory().expect("open in-memory db");
+        conn.execute(
+            "CREATE TABLE video_metadata (
+                video_id INTEGER PRIMARY KEY,
+                name TEXT, title TEXT, released INTEGER, poster TEXT, thumb TEXT,
+                duration INTEGER, width INTEGER, height INTEGER, framerate REAL,
+                description TEXT
+            )",
+            [],
+        )
+        .expect("create video_metadata");
+        conn.execute(
+            "CREATE TABLE file_metadata (
+                metadata_id INTEGER PRIMARY KEY,
+                filepath TEXT, creation_time INTEGER, modification_time INTEGER,
+                file_type INTEGER
+            )",
+            [],
+        )
+        .expect("create file_metadata");
+        // Title contains a single quote: a `format!`-built query would break.
+        conn.execute(
+            "INSERT INTO video_metadata (video_id, name, title)
+             VALUES (1, 'movie.mkv', \"O'Malley's Gang\")",
+            [],
+        )
+        .expect("insert video");
+        conn.execute(
+            "INSERT INTO file_metadata (metadata_id, filepath, file_type)
+             VALUES (1, '/tmp/movie.mkv', 2)",
+            [],
+        )
+        .expect("insert file");
+        std::sync::Arc::new(std::sync::Mutex::new(conn))
+    }
+
+    #[test]
+    fn search_video_matches_title_containing_single_quote() {
+        let conn = test_db();
+        let mut search = SearchData::default();
+        search.video = true;
+        search.title = true;
+        search.from_string = "O'Malley".to_string();
+
+        let (videos, files) = search_video(conn, &search);
+        assert_eq!(videos.len(), 1, "single-quote title should match");
+        assert_eq!(files.len(), 1);
+    }
+
+    #[test]
+    fn search_video_rejects_sql_injection_term() {
+        let conn = test_db();
+        let mut search = SearchData::default();
+        search.video = true;
+        search.title = true;
+        // If naively interpolated this becomes `LIKE '%%' OR '1'='1%'` and
+        // matches every row. Bound as a parameter it must match nothing.
+        search.from_string = "%' OR '1'='1".to_string();
+
+        let (videos, files) = search_video(conn, &search);
+        assert_eq!(videos.len(), 0, "injection term must not match");
+        assert_eq!(files.len(), 0);
+    }
+
+    #[test]
+    fn search_video_case_insensitive_substring() {
+        let conn = test_db();
+        let mut search = SearchData::default();
+        search.video = true;
+        search.title = true;
+        search.from_string = "gang".to_string(); // title is "O'Malley's Gang"
+
+        let (videos, files) = search_video(conn, &search);
+        assert_eq!(videos.len(), 1, "substring should match case-insensitively");
+        assert_eq!(files.len(), 1);
+    }
 }
