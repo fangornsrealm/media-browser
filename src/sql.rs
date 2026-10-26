@@ -6952,6 +6952,23 @@ mod tests {
             [],
         )
         .expect("insert tag map");
+        // A second image with a real created date (2020-01-01T00:00:00Z =
+        // 1577836800) so the image date-range search path can be exercised.
+        // The `created` column stores a Unix timestamp (rusqlite stores
+        // NaiveDate as i64 seconds-since-epoch), matching the `from_date` /
+        // `to_date` Unix-timestamp bounds used in the range query.
+        conn.execute(
+            "INSERT INTO image_metadata (image_id, name, path, created)
+             VALUES (8, 'Dated Shot', '/tmp/dated.jpg', 1577836800)",
+            [],
+        )
+        .expect("insert dated image");
+        conn.execute(
+            "INSERT INTO file_metadata (metadata_id, filepath, file_type)
+             VALUES (8, '/tmp/dated.jpg', 1)",
+            [],
+        )
+        .expect("insert dated image file");
         std::sync::Arc::new(std::sync::Mutex::new(conn))
     }
 
@@ -7048,6 +7065,28 @@ mod tests {
         let (images, files) = search_image(conn, &search);
         assert_eq!(images.len(), 0, "injection term must not match");
         assert_eq!(files.len(), 0);
+    }
+
+    #[test]
+    fn search_image_date_range_matches_only_dated_image() {
+        let conn = test_db();
+        let mut search = SearchData::default();
+        search.image = true;
+        search.title = false; // only the release_date branch should run
+        search.release_date = true;
+        // 2020-01-01 (1577836800) is bracketed so the dated image (id 8)
+        // matches while the epoch image (id 7, created = 0) does not.
+        search.from_date = 1_577_800_000;
+        search.to_date = 1_577_870_000;
+
+        let (images, files) = search_image(conn, &search);
+        assert_eq!(
+            images.len(),
+            1,
+            "date range must match only the dated image"
+        );
+        assert_eq!(files.len(), 1);
+        assert_eq!(images[0].id, 8);
     }
 
     #[test]
