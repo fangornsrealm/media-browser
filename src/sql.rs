@@ -226,9 +226,6 @@ fn search_video_metadata(
 ) -> (Vec<VideoMetadata>, Vec<FileMetadata>) {
     let mut files = Vec::new();
     let mut videos = Vec::new();
-    let mut ids = Vec::new();
-    let mut video_id;
-
     let connection = match sql_connection.lock() {
         Ok(conn) => conn,
         Err(error) => {
@@ -242,16 +239,58 @@ fn search_video_metadata(
                 Ok(mut rows) => {
                     loop {
                         match rows.next() {
-                            Ok(Some(row)) => match row.get(0) {
-                                Ok(val) => {
-                                    video_id = val;
-                                    ids.push(video_id);
+                            Ok(Some(row)) => {
+                                let mut video = VideoMetadata::default();
+                                let mut file = FileMetadata::default();
+                                let video_id: i64 = match row.get(0) {
+                                    Ok(val) => val,
+                                    Err(error) => {
+                                        log::error!("Failed to read id for video: {}", error);
+                                        continue;
+                                    }
+                                };
+                                video.id = video_id as u32;
+                                file.metadata_id = video_id;
+                                if let Ok(s) = row.get::<_, String>(1) {
+                                    video.path = s.clone();
+                                    file.filepath = PathBuf::from(s);
                                 }
-                                Err(error) => {
-                                    log::error!("Failed to read id for video: {}", error);
-                                    continue;
+                                if let Ok(v) = row.get(2) {
+                                    file.creation_time = v;
                                 }
-                            },
+                                if let Ok(v) = row.get(3) {
+                                    file.modification_time = v;
+                                }
+                                if let Ok(v) = row.get(4) {
+                                    file.file_type = v;
+                                }
+                                if let Ok(v) = row.get(5) {
+                                    video.name = v;
+                                }
+                                if let Ok(v) = row.get(6) {
+                                    video.title = v;
+                                }
+                                if let Ok(v) = row.get(7) {
+                                    video.date = v;
+                                }
+                                if let Ok(v) = row.get(8) {
+                                    video.duration = v;
+                                }
+                                if let Ok(v) = row.get(9) {
+                                    video.width = v;
+                                }
+                                if let Ok(v) = row.get(10) {
+                                    video.height = v;
+                                }
+                                if let Ok(v) = row.get(11) {
+                                    video.framerate = v;
+                                }
+                                if let Ok(v) = row.get(12) {
+                                    video.description = v;
+                                }
+                                videos.push(video);
+                                files.push(file);
+                            }
                             Ok(None) => {
                                 //log::warn!("No data read from indices.");
                                 break;
@@ -276,13 +315,6 @@ fn search_video_metadata(
         }
     }
     drop(connection);
-    for video_id in ids {
-        let filedata = file_by_id(sql_connection.clone(), video_id);
-        let pathstr = crate::parsers::osstr_to_string(filedata.filepath.clone().into_os_string());
-        let videodata = video_by_id(sql_connection.clone(), &pathstr, video_id);
-        files.push(filedata);
-        videos.push(videodata);
-    }
     (videos, files)
 }
 
@@ -297,7 +329,7 @@ pub fn search_video(
         return (videos, files);
     }
     if search.title {
-        let query = "SELECT video_id FROM video_metadata WHERE title LIKE ? ESCAPE '\\'";
+        let query = "SELECT vm.video_id, fm.filepath, fm.creation_time, fm.modification_time, fm.file_type, vm.name, vm.title, vm.released, vm.duration, vm.width, vm.height, vm.framerate, vm.description FROM video_metadata vm INNER JOIN file_metadata fm ON fm.metadata_id = vm.video_id WHERE vm.title LIKE ? ESCAPE '\\'";
         let params = vec![Value::Text(escape_like_term(&search.from_string))];
         let (newvideos, newfiles) =
             search_video_metadata(sql_connection.clone(), query.to_string(), params);
@@ -310,7 +342,7 @@ pub fn search_video(
         }
     }
     if search.description {
-        let query = "SELECT video_id FROM video_metadata WHERE description LIKE ? ESCAPE '\\'";
+        let query = "SELECT vm.video_id, fm.filepath, fm.creation_time, fm.modification_time, fm.file_type, vm.name, vm.title, vm.released, vm.duration, vm.width, vm.height, vm.framerate, vm.description FROM video_metadata vm INNER JOIN file_metadata fm ON fm.metadata_id = vm.video_id WHERE vm.description LIKE ? ESCAPE '\\'";
         let params = vec![Value::Text(escape_like_term(&search.from_string))];
         let (newvideos, newfiles) =
             search_video_metadata(sql_connection.clone(), query.to_string(), params);
@@ -326,7 +358,7 @@ pub fn search_video(
         let (query, params);
         if search.to_value != 0 {
             (query, params) = (
-                "SELECT video_id FROM video_metadata WHERE duration > ? AND duration < ?",
+                "SELECT vm.video_id, fm.filepath, fm.creation_time, fm.modification_time, fm.file_type, vm.name, vm.title, vm.released, vm.duration, vm.width, vm.height, vm.framerate, vm.description FROM video_metadata vm INNER JOIN file_metadata fm ON fm.metadata_id = vm.video_id WHERE vm.duration > ? AND vm.duration < ?",
                 vec![
                     Value::Integer(search.from_value as i64),
                     Value::Integer(search.to_value as i64),
@@ -334,7 +366,7 @@ pub fn search_video(
             );
         } else {
             (query, params) = (
-                "SELECT video_id FROM video_metadata WHERE duration > ?",
+                "SELECT vm.video_id, fm.filepath, fm.creation_time, fm.modification_time, fm.file_type, vm.name, vm.title, vm.released, vm.duration, vm.width, vm.height, vm.framerate, vm.description FROM video_metadata vm INNER JOIN file_metadata fm ON fm.metadata_id = vm.video_id WHERE vm.duration > ?",
                 vec![Value::Integer(search.from_value as i64)],
             );
         }
@@ -349,7 +381,7 @@ pub fn search_video(
         }
     }
     if search.actor {
-        let query = "SELECT video_id FROM actors INNER JOIN people ON people.person_id = actors.actor_id WHERE people.person_name LIKE ? ESCAPE '\\'";
+        let query = "SELECT a.video_id, fm.filepath, fm.creation_time, fm.modification_time, fm.file_type, vm.name, vm.title, vm.released, vm.duration, vm.width, vm.height, vm.framerate, vm.description FROM actors a INNER JOIN people p ON p.person_id = a.actor_id INNER JOIN video_metadata vm ON vm.video_id = a.video_id INNER JOIN file_metadata fm ON fm.metadata_id = a.video_id WHERE p.person_name LIKE ? ESCAPE '\\'";
         let params = vec![Value::Text(escape_like_term(&search.from_string))];
         let (newvideos, newfiles) =
             search_video_metadata(sql_connection.clone(), query.to_string(), params);
@@ -362,7 +394,7 @@ pub fn search_video(
         }
     }
     if search.director {
-        let query = "SELECT video_id FROM directors INNER JOIN people ON people.person_id = directors.director_id WHERE people.person_name LIKE ? ESCAPE '\\'";
+        let query = "SELECT d.video_id, fm.filepath, fm.creation_time, fm.modification_time, fm.file_type, vm.name, vm.title, vm.released, vm.duration, vm.width, vm.height, vm.framerate, vm.description FROM directors d INNER JOIN people p ON p.person_id = d.director_id INNER JOIN video_metadata vm ON vm.video_id = d.video_id INNER JOIN file_metadata fm ON fm.metadata_id = d.video_id WHERE p.person_name LIKE ? ESCAPE '\\'";
         let params = vec![Value::Text(escape_like_term(&search.from_string))];
         let (newvideos, newfiles) =
             search_video_metadata(sql_connection.clone(), query.to_string(), params);
@@ -378,7 +410,7 @@ pub fn search_video(
         let (query, params);
         if search.to_date != 0 {
             (query, params) = (
-                "SELECT video_id FROM video_metadata WHERE released > ? AND released < ?",
+                "SELECT vm.video_id, fm.filepath, fm.creation_time, fm.modification_time, fm.file_type, vm.name, vm.title, vm.released, vm.duration, vm.width, vm.height, vm.framerate, vm.description FROM video_metadata vm INNER JOIN file_metadata fm ON fm.metadata_id = vm.video_id WHERE vm.released > ? AND vm.released < ?",
                 vec![
                     Value::Integer(search.from_date),
                     Value::Integer(search.to_date),
@@ -386,7 +418,7 @@ pub fn search_video(
             );
         } else {
             (query, params) = (
-                "SELECT video_id FROM video_metadata WHERE released > ?",
+                "SELECT vm.video_id, fm.filepath, fm.creation_time, fm.modification_time, fm.file_type, vm.name, vm.title, vm.released, vm.duration, vm.width, vm.height, vm.framerate, vm.description FROM video_metadata vm INNER JOIN file_metadata fm ON fm.metadata_id = vm.video_id WHERE vm.released > ?",
                 vec![Value::Integer(search.from_date)],
             );
         }
@@ -401,7 +433,7 @@ pub fn search_video(
         }
     }
     if search.tags {
-        let query = "SELECT media_id FROM tags_media_map INNER JOIN tags ON tags_media_map.tagmap_id = tags.tag_id WHERE tags.tag LIKE ? ESCAPE '\\'";
+        let query = "SELECT tmm.media_id, fm.filepath, fm.creation_time, fm.modification_time, fm.file_type, vm.name, vm.title, vm.released, vm.duration, vm.width, vm.height, vm.framerate, vm.description FROM tags_media_map tmm INNER JOIN tags t ON tmm.tagmap_id = t.tag_id INNER JOIN video_metadata vm ON vm.video_id = tmm.media_id INNER JOIN file_metadata fm ON fm.metadata_id = tmm.media_id WHERE t.tag LIKE ? ESCAPE '\\'";
         let params = vec![Value::Text(escape_like_term(&search.from_string))];
         let (newvideos, newfiles) =
             search_video_metadata(sql_connection.clone(), query.to_string(), params);
@@ -424,8 +456,6 @@ fn search_audio_metadata(
 ) -> (Vec<AudioMetadata>, Vec<FileMetadata>) {
     let mut files = Vec::new();
     let mut audios = Vec::new();
-    let mut ids = Vec::new();
-    let mut audio_id;
     let connection = match sql_connection.lock() {
         Ok(conn) => conn,
         Err(error) => {
@@ -440,16 +470,52 @@ fn search_audio_metadata(
                 Ok(mut rows) => {
                     loop {
                         match rows.next() {
-                            Ok(Some(row)) => match row.get(0) {
-                                Ok(val) => {
-                                    audio_id = val;
-                                    ids.push(audio_id);
+                            Ok(Some(row)) => {
+                                let mut audio = AudioMetadata::default();
+                                let mut file = FileMetadata::default();
+                                let audio_id: i64 = match row.get(0) {
+                                    Ok(val) => val,
+                                    Err(error) => {
+                                        log::error!("Failed to read id for audio: {}", error);
+                                        continue;
+                                    }
+                                };
+                                audio.id = audio_id as u32;
+                                file.metadata_id = audio_id;
+                                if let Ok(s) = row.get::<_, String>(1) {
+                                    audio.path = s.clone();
+                                    file.filepath = PathBuf::from(s);
                                 }
-                                Err(error) => {
-                                    log::error!("Failed to read id for video: {}", error);
-                                    continue;
+                                if let Ok(v) = row.get(2) {
+                                    file.creation_time = v;
                                 }
-                            },
+                                if let Ok(v) = row.get(3) {
+                                    file.modification_time = v;
+                                }
+                                if let Ok(v) = row.get(4) {
+                                    file.file_type = v;
+                                }
+                                if let Ok(v) = row.get(5) {
+                                    audio.name = v;
+                                }
+                                if let Ok(v) = row.get(6) {
+                                    audio.title = v;
+                                }
+                                if let Ok(v) = row.get(7) {
+                                    audio.date = v;
+                                }
+                                if let Ok(v) = row.get(8) {
+                                    audio.duration = v;
+                                }
+                                if let Ok(v) = row.get(9) {
+                                    audio.genre = v;
+                                }
+                                if let Ok(v) = row.get(10) {
+                                    audio.composer = v;
+                                }
+                                audios.push(audio);
+                                files.push(file);
+                            }
                             Ok(None) => {
                                 //log::warn!("No data read from indices.");
                                 break;
@@ -463,7 +529,7 @@ fn search_audio_metadata(
                 }
                 Err(err) => {
                     log::error!(
-                        "could not read line from videostore_indices database: {}",
+                        "could not read line from audiostreamstore_indices database: {}",
                         err
                     );
                 }
@@ -474,13 +540,6 @@ fn search_audio_metadata(
         }
     }
     drop(connection);
-    for audio_id in ids {
-        let filedata = file_by_id(sql_connection.clone(), audio_id);
-        let pathstr = crate::parsers::osstr_to_string(filedata.filepath.clone().into_os_string());
-        let audiodata = audio_by_id(sql_connection.clone(), &pathstr, audio_id);
-        files.push(filedata);
-        audios.push(audiodata);
-    }
     (audios, files)
 }
 
@@ -495,7 +554,7 @@ pub fn search_audio(
         return (audios, files);
     }
     if search.title {
-        let query = "SELECT audio_id FROM audio_metadata WHERE title LIKE ? ESCAPE '\\'";
+        let query = "SELECT am.audio_id, fm.filepath, fm.creation_time, fm.modification_time, fm.file_type, am.name, am.title, am.released, am.duration, am.genre, am.composer FROM audio_metadata am INNER JOIN file_metadata fm ON fm.metadata_id = am.audio_id WHERE am.title LIKE ? ESCAPE '\\'";
         let params = vec![Value::Text(escape_like_term(&search.from_string))];
         let (newvideos, newfiles) =
             search_audio_metadata(sql_connection.clone(), query.to_string(), params);
@@ -511,7 +570,7 @@ pub fn search_audio(
         let (query, params);
         if search.to_value != 0 {
             (query, params) = (
-                "SELECT audio_id FROM audio_metadata WHERE duration > ? AND duration < ?",
+                "SELECT am.audio_id, fm.filepath, fm.creation_time, fm.modification_time, fm.file_type, am.name, am.title, am.released, am.duration, am.genre, am.composer FROM audio_metadata am INNER JOIN file_metadata fm ON fm.metadata_id = am.audio_id WHERE am.duration > ? AND am.duration < ?",
                 vec![
                     Value::Integer(search.from_value as i64 / 1000000),
                     Value::Integer(search.to_value as i64 / 1000000),
@@ -519,7 +578,7 @@ pub fn search_audio(
             );
         } else {
             (query, params) = (
-                "SELECT audio_id FROM audio_metadata WHERE duration > ?",
+                "SELECT am.audio_id, fm.filepath, fm.creation_time, fm.modification_time, fm.file_type, am.name, am.title, am.released, am.duration, am.genre, am.composer FROM audio_metadata am INNER JOIN file_metadata fm ON fm.metadata_id = am.audio_id WHERE am.duration > ?",
                 vec![Value::Integer(search.from_value as i64 / 1000000)],
             );
         }
@@ -534,7 +593,7 @@ pub fn search_audio(
         }
     }
     if search.artist {
-        let query = "SELECT audio_id FROM artist_audio_map INNER JOIN artists ON artists.artist_id = artist_audio_map.artist_id WHERE artists.artist_name LIKE ? ESCAPE '\\'";
+        let query = "SELECT aam.audio_id, fm.filepath, fm.creation_time, fm.modification_time, fm.file_type, am.name, am.title, am.released, am.duration, am.genre, am.composer FROM artist_audio_map aam INNER JOIN artists a ON a.artist_id = aam.artist_id INNER JOIN audio_metadata am ON am.audio_id = aam.audio_id INNER JOIN file_metadata fm ON fm.metadata_id = aam.audio_id WHERE a.artist_name LIKE ? ESCAPE '\\'";
         let params = vec![Value::Text(escape_like_term(&search.from_string))];
         let (newvideos, newfiles) =
             search_audio_metadata(sql_connection.clone(), query.to_string(), params);
@@ -547,7 +606,7 @@ pub fn search_audio(
         }
     }
     if search.title {
-        let query = "SELECT audio_id FROM album_audio_map INNER JOIN albums ON album_audio_map.album_id = albums.album_id WHERE albums.album_name LIKE ? ESCAPE '\\'";
+        let query = "SELECT aam.audio_id, fm.filepath, fm.creation_time, fm.modification_time, fm.file_type, am.name, am.title, am.released, am.duration, am.genre, am.composer FROM album_audio_map aam INNER JOIN albums al ON al.album_id = aam.album_id INNER JOIN audio_metadata am ON am.audio_id = aam.audio_id INNER JOIN file_metadata fm ON fm.metadata_id = aam.audio_id WHERE al.album_name LIKE ? ESCAPE '\\'";
         let params = vec![Value::Text(escape_like_term(&search.from_string))];
         let (newvideos, newfiles) =
             search_audio_metadata(sql_connection.clone(), query.to_string(), params);
@@ -560,7 +619,7 @@ pub fn search_audio(
         }
     }
     if search.album_artist {
-        let query = "SELECT audio_id FROM albumartist_audio_map INNER JOIN artists ON artists.artist_id = albumartist_audio_map.albumartist_id WHERE artists.artist_name LIKE ? ESCAPE '\\'";
+        let query = "SELECT aam.audio_id, fm.filepath, fm.creation_time, fm.modification_time, fm.file_type, am.name, am.title, am.released, am.duration, am.genre, am.composer FROM albumartist_audio_map aam INNER JOIN artists a ON a.artist_id = aam.albumartist_id INNER JOIN audio_metadata am ON am.audio_id = aam.audio_id INNER JOIN file_metadata fm ON fm.metadata_id = aam.audio_id WHERE a.artist_name LIKE ? ESCAPE '\\'";
         let params = vec![Value::Text(escape_like_term(&search.from_string))];
         let (newvideos, newfiles) =
             search_audio_metadata(sql_connection.clone(), query.to_string(), params);
@@ -573,7 +632,7 @@ pub fn search_audio(
         }
     }
     if search.album {
-        let query = "SELECT audio_id FROM album_audio_map INNER JOIN albums ON album_audio_map.album_id = albums.album_id WHERE albums.album_name LIKE ? ESCAPE '\\'";
+        let query = "SELECT aam.audio_id, fm.filepath, fm.creation_time, fm.modification_time, fm.file_type, am.name, am.title, am.released, am.duration, am.genre, am.composer FROM album_audio_map aam INNER JOIN albums al ON al.album_id = aam.album_id INNER JOIN audio_metadata am ON am.audio_id = aam.audio_id INNER JOIN file_metadata fm ON fm.metadata_id = aam.audio_id WHERE al.album_name LIKE ? ESCAPE '\\'";
         let params = vec![Value::Text(escape_like_term(&search.from_string))];
         let (newvideos, newfiles) =
             search_audio_metadata(sql_connection.clone(), query.to_string(), params);
@@ -586,7 +645,7 @@ pub fn search_audio(
         }
     }
     if search.composer {
-        let query = "SELECT audio_id FROM audio_metadata WHERE composer LIKE ? ESCAPE '\\'";
+        let query = "SELECT am.audio_id, fm.filepath, fm.creation_time, fm.modification_time, fm.file_type, am.name, am.title, am.released, am.duration, am.genre, am.composer FROM audio_metadata am INNER JOIN file_metadata fm ON fm.metadata_id = am.audio_id WHERE am.composer LIKE ? ESCAPE '\\'";
         let params = vec![Value::Text(escape_like_term(&search.from_string))];
         let (newvideos, newfiles) =
             search_audio_metadata(sql_connection.clone(), query.to_string(), params);
@@ -599,7 +658,7 @@ pub fn search_audio(
         }
     }
     if search.genre {
-        let query = "SELECT audio_id FROM audio_metadata WHERE genre LIKE ? ESCAPE '\\'";
+        let query = "SELECT am.audio_id, fm.filepath, fm.creation_time, fm.modification_time, fm.file_type, am.name, am.title, am.released, am.duration, am.genre, am.composer FROM audio_metadata am INNER JOIN file_metadata fm ON fm.metadata_id = am.audio_id WHERE am.genre LIKE ? ESCAPE '\\'";
         let params = vec![Value::Text(escape_like_term(&search.from_string))];
         let (newvideos, newfiles) =
             search_audio_metadata(sql_connection.clone(), query.to_string(), params);
@@ -615,7 +674,7 @@ pub fn search_audio(
         let (query, params);
         if search.to_date != 0 {
             (query, params) = (
-                "SELECT audio_id FROM audio_metadata WHERE released > ? AND released < ?",
+                "SELECT am.audio_id, fm.filepath, fm.creation_time, fm.modification_time, fm.file_type, am.name, am.title, am.released, am.duration, am.genre, am.composer FROM audio_metadata am INNER JOIN file_metadata fm ON fm.metadata_id = am.audio_id WHERE am.released > ? AND am.released < ?",
                 vec![
                     Value::Integer(search.from_date),
                     Value::Integer(search.to_date),
@@ -623,7 +682,7 @@ pub fn search_audio(
             );
         } else {
             (query, params) = (
-                "SELECT audio_id FROM audio_metadata WHERE released > ?",
+                "SELECT am.audio_id, fm.filepath, fm.creation_time, fm.modification_time, fm.file_type, am.name, am.title, am.released, am.duration, am.genre, am.composer FROM audio_metadata am INNER JOIN file_metadata fm ON fm.metadata_id = am.audio_id WHERE am.released > ?",
                 vec![Value::Integer(search.from_date)],
             );
         }
@@ -638,7 +697,7 @@ pub fn search_audio(
         }
     }
     if search.tags {
-        let query = "SELECT media_id FROM tags_media_map INNER JOIN tags ON tags_media_map.tagmap_id = tags.tag_id WHERE tags.tag LIKE ? ESCAPE '\\'";
+        let query = "SELECT tmm.media_id, fm.filepath, fm.creation_time, fm.modification_time, fm.file_type, am.name, am.title, am.released, am.duration, am.genre, am.composer FROM tags_media_map tmm INNER JOIN tags t ON tmm.tagmap_id = t.tag_id INNER JOIN audio_metadata am ON am.audio_id = tmm.media_id INNER JOIN file_metadata fm ON fm.metadata_id = tmm.media_id WHERE t.tag LIKE ? ESCAPE '\\'";
         let params = vec![Value::Text(escape_like_term(&search.from_string))];
         let (newaudios, newfiles) =
             search_audio_metadata(sql_connection.clone(), query.to_string(), params);
@@ -661,9 +720,6 @@ fn search_image_metadata(
 ) -> (Vec<ImageMetadata>, Vec<FileMetadata>) {
     let mut files = Vec::new();
     let mut images = Vec::new();
-    let mut ids = Vec::new();
-    let mut image_id;
-
     let connection = match sql_connection.lock() {
         Ok(conn) => conn,
         Err(error) => {
@@ -677,16 +733,79 @@ fn search_image_metadata(
                 Ok(mut rows) => {
                     loop {
                         match rows.next() {
-                            Ok(Some(row)) => match row.get(0) {
-                                Ok(val) => {
-                                    image_id = val;
-                                    ids.push(image_id);
+                            Ok(Some(row)) => {
+                                let mut image = ImageMetadata::default();
+                                let mut file = FileMetadata::default();
+                                let image_id: i64 = match row.get(0) {
+                                    Ok(val) => val,
+                                    Err(error) => {
+                                        log::error!("Failed to read id for image: {}", error);
+                                        continue;
+                                    }
+                                };
+                                image.id = image_id as u32;
+                                file.metadata_id = image_id;
+                                if let Ok(s) = row.get::<_, String>(1) {
+                                    image.path = s.clone();
+                                    file.filepath = PathBuf::from(s);
                                 }
-                                Err(error) => {
-                                    log::error!("Failed to read id for video: {}", error);
-                                    continue;
+                                if let Ok(v) = row.get(2) {
+                                    file.creation_time = v;
                                 }
-                            },
+                                if let Ok(v) = row.get(3) {
+                                    file.modification_time = v;
+                                }
+                                if let Ok(v) = row.get(4) {
+                                    file.file_type = v;
+                                }
+                                if let Ok(v) = row.get(5) {
+                                    image.name = v;
+                                }
+                                if let Ok(v) = row.get(6) {
+                                    image.path = v;
+                                }
+                                if let Ok(v) = row.get(7) {
+                                    image.date = v;
+                                }
+                                if let Ok(v) = row.get(8) {
+                                    image.resized = v;
+                                }
+                                if let Ok(v) = row.get(9) {
+                                    image.thumb = v;
+                                }
+                                if let Ok(v) = row.get(10) {
+                                    image.width = v;
+                                }
+                                if let Ok(v) = row.get(11) {
+                                    image.height = v;
+                                }
+                                if let Ok(v) = row.get(12) {
+                                    image.photographer = v;
+                                }
+                                if let Ok(v) = row.get(13) {
+                                    image.lense_model = v;
+                                }
+                                if let Ok(v) = row.get(14) {
+                                    image.focal_length = v;
+                                }
+                                if let Ok(v) = row.get(15) {
+                                    image.exposure_time = v;
+                                }
+                                if let Ok(v) = row.get(16) {
+                                    image.fnumber = v;
+                                }
+                                if let Ok(v) = row.get(17) {
+                                    image.gps_latitude = v;
+                                }
+                                if let Ok(v) = row.get(18) {
+                                    image.gps_longitude = v;
+                                }
+                                if let Ok(v) = row.get(19) {
+                                    image.gps_altitude = v;
+                                }
+                                images.push(image);
+                                files.push(file);
+                            }
                             Ok(None) => {
                                 //log::warn!("No data read from indices.");
                                 break;
@@ -699,10 +818,7 @@ fn search_image_metadata(
                     }
                 }
                 Err(err) => {
-                    log::error!(
-                        "could not read line from videostore_indices database: {}",
-                        err
-                    );
+                    log::error!("could not read line from imagestore database: {}", err);
                 }
             }
         }
@@ -711,13 +827,6 @@ fn search_image_metadata(
         }
     }
     drop(connection);
-    for image_id in ids {
-        let filedata = file_by_id(sql_connection.clone(), image_id);
-        let pathstr = crate::parsers::osstr_to_string(filedata.filepath.clone().into_os_string());
-        let imagedata = image_by_id(sql_connection.clone(), &pathstr, image_id);
-        files.push(filedata);
-        images.push(imagedata);
-    }
     (images, files)
 }
 
@@ -733,7 +842,7 @@ pub fn search_image(
         return (images, files);
     }
     if search.title {
-        let query = "SELECT image_id FROM image_metadata WHERE name LIKE ? ESCAPE '\\'";
+        let query = "SELECT im.image_id, fm.filepath, fm.creation_time, fm.modification_time, fm.file_type, im.name, im.path, im.created, im.resized, im.thumb, im.width, im.height, im.Photographer, im.LenseModel, im.Focallength, im.Exposuretime, im.FNumber, im.GPSLatitude, im.GPSLongitude, im.GPSAltitude FROM image_metadata im INNER JOIN file_metadata fm ON fm.metadata_id = im.image_id WHERE im.name LIKE ? ESCAPE '\\'";
         let params = vec![Value::Text(escape_like_term(&search.from_string))];
         let (newvideos, newfiles) =
             search_image_metadata(sql_connection.clone(), query.to_string(), params);
@@ -746,7 +855,7 @@ pub fn search_image(
         }
     }
     if search.lense_model {
-        let query = "SELECT image_id FROM image_metadata WHERE LenseModel LIKE ? ESCAPE '\\'";
+        let query = "SELECT im.image_id, fm.filepath, fm.creation_time, fm.modification_time, fm.file_type, im.name, im.path, im.created, im.resized, im.thumb, im.width, im.height, im.Photographer, im.LenseModel, im.Focallength, im.Exposuretime, im.FNumber, im.GPSLatitude, im.GPSLongitude, im.GPSAltitude FROM image_metadata im INNER JOIN file_metadata fm ON fm.metadata_id = im.image_id WHERE im.LenseModel LIKE ? ESCAPE '\\'";
         let params = vec![Value::Text(escape_like_term(&search.from_string))];
         let (newvideos, newfiles) =
             search_image_metadata(sql_connection.clone(), query.to_string(), params);
@@ -759,7 +868,7 @@ pub fn search_image(
         }
     }
     if search.focal_length {
-        let query = "SELECT image_id FROM image_metadata WHERE Focallength LIKE ? ESCAPE '\\'";
+        let query = "SELECT im.image_id, fm.filepath, fm.creation_time, fm.modification_time, fm.file_type, im.name, im.path, im.created, im.resized, im.thumb, im.width, im.height, im.Photographer, im.LenseModel, im.Focallength, im.Exposuretime, im.FNumber, im.GPSLatitude, im.GPSLongitude, im.GPSAltitude FROM image_metadata im INNER JOIN file_metadata fm ON fm.metadata_id = im.image_id WHERE im.Focallength LIKE ? ESCAPE '\\'";
         let params = vec![Value::Text(escape_like_term(&search.from_string))];
         let (newvideos, newfiles) =
             search_image_metadata(sql_connection.clone(), query.to_string(), params);
@@ -772,7 +881,7 @@ pub fn search_image(
         }
     }
     if search.exposure_time {
-        let query = "SELECT image_id FROM image_metadata WHERE Exposuretime LIKE ? ESCAPE '\\'";
+        let query = "SELECT im.image_id, fm.filepath, fm.creation_time, fm.modification_time, fm.file_type, im.name, im.path, im.created, im.resized, im.thumb, im.width, im.height, im.Photographer, im.LenseModel, im.Focallength, im.Exposuretime, im.FNumber, im.GPSLatitude, im.GPSLongitude, im.GPSAltitude FROM image_metadata im INNER JOIN file_metadata fm ON fm.metadata_id = im.image_id WHERE im.Exposuretime LIKE ? ESCAPE '\\'";
         let params = vec![Value::Text(escape_like_term(&search.from_string))];
         let (newvideos, newfiles) =
             search_image_metadata(sql_connection.clone(), query.to_string(), params);
@@ -785,7 +894,7 @@ pub fn search_image(
         }
     }
     if search.fnumber {
-        let query = "SELECT image_id FROM image_metadata WHERE FNumber LIKE ? ESCAPE '\\'";
+        let query = "SELECT im.image_id, fm.filepath, fm.creation_time, fm.modification_time, fm.file_type, im.name, im.path, im.created, im.resized, im.thumb, im.width, im.height, im.Photographer, im.LenseModel, im.Focallength, im.Exposuretime, im.FNumber, im.GPSLatitude, im.GPSLongitude, im.GPSAltitude FROM image_metadata im INNER JOIN file_metadata fm ON fm.metadata_id = im.image_id WHERE im.FNumber LIKE ? ESCAPE '\\'";
         let params = vec![Value::Text(escape_like_term(&search.from_string))];
         let (newvideos, newfiles) =
             search_image_metadata(sql_connection.clone(), query.to_string(), params);
@@ -801,7 +910,7 @@ pub fn search_image(
         let (query, params);
         if search.to_value != 0 {
             (query, params) = (
-                "SELECT image_id FROM image_metadata WHERE GPSLatitude > ? AND GPSLatitude < ?",
+                "SELECT im.image_id, fm.filepath, fm.creation_time, fm.modification_time, fm.file_type, im.name, im.path, im.created, im.resized, im.thumb, im.width, im.height, im.Photographer, im.LenseModel, im.Focallength, im.Exposuretime, im.FNumber, im.GPSLatitude, im.GPSLongitude, im.GPSAltitude FROM image_metadata im INNER JOIN file_metadata fm ON fm.metadata_id = im.image_id WHERE im.GPSLatitude > ? AND im.GPSLatitude < ?",
                 vec![
                     Value::Integer(search.from_value as i64 / 1000000),
                     Value::Integer(search.to_value as i64 / 1000000),
@@ -809,7 +918,7 @@ pub fn search_image(
             );
         } else {
             (query, params) = (
-                "SELECT image_id FROM image_metadata WHERE GPSLatitude > ?",
+                "SELECT im.image_id, fm.filepath, fm.creation_time, fm.modification_time, fm.file_type, im.name, im.path, im.created, im.resized, im.thumb, im.width, im.height, im.Photographer, im.LenseModel, im.Focallength, im.Exposuretime, im.FNumber, im.GPSLatitude, im.GPSLongitude, im.GPSAltitude FROM image_metadata im INNER JOIN file_metadata fm ON fm.metadata_id = im.image_id WHERE im.GPSLatitude > ?",
                 vec![Value::Integer(search.from_value as i64 / 1000000)],
             );
         }
@@ -827,7 +936,7 @@ pub fn search_image(
         let (query, params);
         if search.to_value != 0 {
             (query, params) = (
-                "SELECT image_id FROM image_metadata WHERE GPSLongitude > ? AND GPSLongitude < ?",
+                "SELECT im.image_id, fm.filepath, fm.creation_time, fm.modification_time, fm.file_type, im.name, im.path, im.created, im.resized, im.thumb, im.width, im.height, im.Photographer, im.LenseModel, im.Focallength, im.Exposuretime, im.FNumber, im.GPSLatitude, im.GPSLongitude, im.GPSAltitude FROM image_metadata im INNER JOIN file_metadata fm ON fm.metadata_id = im.image_id WHERE im.GPSLongitude > ? AND im.GPSLongitude < ?",
                 vec![
                     Value::Integer(search.from_value as i64 / 1000000),
                     Value::Integer(search.to_value as i64 / 1000000),
@@ -835,7 +944,7 @@ pub fn search_image(
             );
         } else {
             (query, params) = (
-                "SELECT image_id FROM image_metadata WHERE GPSLongitude > ?",
+                "SELECT im.image_id, fm.filepath, fm.creation_time, fm.modification_time, fm.file_type, im.name, im.path, im.created, im.resized, im.thumb, im.width, im.height, im.Photographer, im.LenseModel, im.Focallength, im.Exposuretime, im.FNumber, im.GPSLatitude, im.GPSLongitude, im.GPSAltitude FROM image_metadata im INNER JOIN file_metadata fm ON fm.metadata_id = im.image_id WHERE im.GPSLongitude > ?",
                 vec![Value::Integer(search.from_value as i64 / 1000000)],
             );
         }
@@ -853,7 +962,7 @@ pub fn search_image(
         let (query, params);
         if search.to_value != 0 {
             (query, params) = (
-                "SELECT image_id FROM image_metadata WHERE GPSAltitude > ? AND GPSAltitude < ?",
+                "SELECT im.image_id, fm.filepath, fm.creation_time, fm.modification_time, fm.file_type, im.name, im.path, im.created, im.resized, im.thumb, im.width, im.height, im.Photographer, im.LenseModel, im.Focallength, im.Exposuretime, im.FNumber, im.GPSLatitude, im.GPSLongitude, im.GPSAltitude FROM image_metadata im INNER JOIN file_metadata fm ON fm.metadata_id = im.image_id WHERE im.GPSAltitude > ? AND im.GPSAltitude < ?",
                 vec![
                     Value::Integer(search.from_value as i64 / 1000000),
                     Value::Integer(search.to_value as i64 / 1000000),
@@ -861,7 +970,7 @@ pub fn search_image(
             );
         } else {
             (query, params) = (
-                "SELECT image_id FROM image_metadata WHERE GPSAltitude > ?",
+                "SELECT im.image_id, fm.filepath, fm.creation_time, fm.modification_time, fm.file_type, im.name, im.path, im.created, im.resized, im.thumb, im.width, im.height, im.Photographer, im.LenseModel, im.Focallength, im.Exposuretime, im.FNumber, im.GPSLatitude, im.GPSLongitude, im.GPSAltitude FROM image_metadata im INNER JOIN file_metadata fm ON fm.metadata_id = im.image_id WHERE im.GPSAltitude > ?",
                 vec![Value::Integer(search.from_value as i64 / 1000000)],
             );
         }
@@ -879,7 +988,7 @@ pub fn search_image(
         let (query, params);
         if search.to_date != 0 {
             (query, params) = (
-                "SELECT image_id FROM image_metadata WHERE created > ? AND created < ?",
+                "SELECT im.image_id, fm.filepath, fm.creation_time, fm.modification_time, fm.file_type, im.name, im.path, im.created, im.resized, im.thumb, im.width, im.height, im.Photographer, im.LenseModel, im.Focallength, im.Exposuretime, im.FNumber, im.GPSLatitude, im.GPSLongitude, im.GPSAltitude FROM image_metadata im INNER JOIN file_metadata fm ON fm.metadata_id = im.image_id WHERE im.created > ? AND im.created < ?",
                 vec![
                     Value::Integer(search.from_date),
                     Value::Integer(search.to_date),
@@ -887,7 +996,7 @@ pub fn search_image(
             );
         } else {
             (query, params) = (
-                "SELECT image_id FROM image_metadata WHERE created > ?",
+                "SELECT im.image_id, fm.filepath, fm.creation_time, fm.modification_time, fm.file_type, im.name, im.path, im.created, im.resized, im.thumb, im.width, im.height, im.Photographer, im.LenseModel, im.Focallength, im.Exposuretime, im.FNumber, im.GPSLatitude, im.GPSLongitude, im.GPSAltitude FROM image_metadata im INNER JOIN file_metadata fm ON fm.metadata_id = im.image_id WHERE im.created > ?",
                 vec![Value::Integer(search.from_date)],
             );
         }
@@ -902,7 +1011,7 @@ pub fn search_image(
         }
     }
     if search.tags {
-        let query = "SELECT media_id FROM tags_media_map INNER JOIN tags ON tags_media_map.tagmap_id = tags.tag_id WHERE tags.tag LIKE ? ESCAPE '\\'";
+        let query = "SELECT tmm.media_id, fm.filepath, fm.creation_time, fm.modification_time, fm.file_type, im.name, im.path, im.created, im.resized, im.thumb, im.width, im.height, im.Photographer, im.LenseModel, im.Focallength, im.Exposuretime, im.FNumber, im.GPSLatitude, im.GPSLongitude, im.GPSAltitude FROM tags_media_map tmm INNER JOIN tags t ON tmm.tagmap_id = t.tag_id INNER JOIN image_metadata im ON im.image_id = tmm.media_id INNER JOIN file_metadata fm ON fm.metadata_id = tmm.media_id WHERE t.tag LIKE ? ESCAPE '\\'";
         let params = vec![Value::Text(escape_like_term(&search.from_string))];
         let (newimages, newfiles) =
             search_image_metadata(sql_connection.clone(), query.to_string(), params);
@@ -1179,9 +1288,6 @@ pub fn search_items(
         let (mut newmetadata, newfiles) = search_audio(sql_connection.clone(), &search);
         for i in 0..newfiles.len() {
             if !data.special_files_contains(newfiles[i].filepath.clone()) {
-                if newfiles[i].file_type != 3 {
-                    continue;
-                }
                 data.special_files_insert(newfiles[i].filepath.clone());
                 if let Ok(metadata) = std::fs::metadata(newfiles[i].filepath.clone()) {
                     let item = crate::parsers::item_from_audiotags(
@@ -6049,7 +6155,10 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
     }
     if !sqlite_file.is_file() {
         connection = Connection::open(sqlite_file)?;
-        println!("{}", connection.is_autocommit());
+        // Enable WAL and a 5s busy timeout to reduce writer/reader contention
+        // and avoid failing immediately on a locked database.
+        connection.execute("PRAGMA journal_mode=WAL", ()).ok();
+        connection.execute("PRAGMA busy_timeout=5000", ()).ok();
         // file_type: 0 other file, 1 image, 2, video, 3 audio
         match connection.execute(
             "CREATE TABLE file_metadata (
@@ -6795,6 +6904,54 @@ mod tests {
             [],
         )
         .expect("insert file");
+        conn.execute(
+            "CREATE TABLE image_metadata (
+                image_id INTEGER PRIMARY KEY,
+                name TEXT, path TEXT, created INTEGER, resized TEXT, thumb TEXT,
+                width INTEGER, height INTEGER, Photographer TEXT, LenseModel TEXT,
+                Focallength TEXT, Exposuretime TEXT, FNumber TEXT, GPSString TEXT,
+                GPSLatitude REAL, GPSLongitude REAL, GPSAltitude REAL
+            )",
+            [],
+        )
+        .expect("create image_metadata");
+        conn.execute(
+            "CREATE TABLE tags (
+                tag_id INTEGER PRIMARY KEY,
+                tag TEXT
+            )",
+            [],
+        )
+        .expect("create tags");
+        conn.execute(
+            "CREATE TABLE tags_media_map (
+                tagmap_id INTEGER PRIMARY KEY,
+                media_id INTEGER,
+                tag_id INTEGER
+            )",
+            [],
+        )
+        .expect("create tags_media_map");
+        // Name contains a single quote: a `format!`-built query would break.
+        conn.execute(
+            "INSERT INTO image_metadata (image_id, name, path, created, GPSLatitude, GPSLongitude)
+             VALUES (7, ?1, '/tmp/photo.jpg', 0, 1.0, 2.0)",
+            ["Smith's Trip"],
+        )
+        .expect("insert image");
+        conn.execute(
+            "INSERT INTO file_metadata (metadata_id, filepath, file_type)
+             VALUES (7, '/tmp/photo.jpg', 1)",
+            [],
+        )
+        .expect("insert image file");
+        conn.execute("INSERT INTO tags (tag_id, tag) VALUES (1, 'holiday')", [])
+            .expect("insert tag");
+        conn.execute(
+            "INSERT INTO tags_media_map (tagmap_id, media_id, tag_id) VALUES (1, 7, 1)",
+            [],
+        )
+        .expect("insert tag map");
         std::sync::Arc::new(std::sync::Mutex::new(conn))
     }
 
@@ -6837,5 +6994,77 @@ mod tests {
         let (videos, files) = search_video(conn, &search);
         assert_eq!(videos.len(), 1, "substring should match case-insensitively");
         assert_eq!(files.len(), 1);
+    }
+
+    #[test]
+    fn search_image_matches_name_containing_single_quote() {
+        let conn = test_db();
+        let mut search = SearchData::default();
+        search.image = true;
+        search.title = true;
+        search.from_string = "Smith's".to_string();
+
+        let (images, files) = search_image(conn, &search);
+        assert_eq!(images.len(), 1, "single-quote name should match");
+        assert_eq!(files.len(), 1);
+        assert_eq!(
+            files[0].filepath,
+            std::path::PathBuf::from("/tmp/photo.jpg")
+        );
+        assert_eq!(
+            images[0].gps_latitude, 1.0,
+            "joined row must carry GPS data"
+        );
+    }
+
+    #[test]
+    fn search_image_matches_tag_via_join() {
+        let conn = test_db();
+        let mut search = SearchData::default();
+        search.image = true;
+        search.title = false;
+        search.tags = true;
+        search.from_string = "holiday".to_string();
+
+        let (images, files) = search_image(conn, &search);
+        assert_eq!(
+            images.len(),
+            1,
+            "tag search should resolve through the join"
+        );
+        assert_eq!(files.len(), 1);
+    }
+
+    #[test]
+    fn search_image_rejects_sql_injection_term() {
+        let conn = test_db();
+        let mut search = SearchData::default();
+        search.image = true;
+        search.title = true;
+        // If naively interpolated this becomes `LIKE '%%' OR '1'='1%'` and
+        // matches every row. Bound as a parameter it must match nothing.
+        search.from_string = "%' OR '1'='1".to_string();
+
+        let (images, files) = search_image(conn, &search);
+        assert_eq!(images.len(), 0, "injection term must not match");
+        assert_eq!(files.len(), 0);
+    }
+
+    #[test]
+    fn search_image_gps_range_injection_does_not_match() {
+        let conn = test_db();
+        let mut search = SearchData::default();
+        search.image = true;
+        search.title = false;
+        search.gps_latitude = true;
+        search.gps_longitude = true;
+        // from_value is scaled by 1e6 before the `/ 1000000` integer division
+        // in the query builder; any value under 1e6 becomes 0, which is still
+        // a legitimate bound for stored values >= 0, so use a bound that is
+        // known to exclude the sample row (stored at lat 1.0 / lon 2.0).
+        search.from_value = 2_000_000_000; // 2.0 in scaled units
+
+        let (images, _files) = search_image(conn, &search);
+        assert_eq!(images.len(), 0, "GPS range must exclude the sample image");
     }
 }
