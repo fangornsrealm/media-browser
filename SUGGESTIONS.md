@@ -29,13 +29,16 @@ Problems:
 
 ## 2. Architecture & Modularity
 
-### 2.1 [High] Very large source files
+### 2.1 [High] ⬜ IN PROGRESS — Very large source files
 Current line counts:
 - `src/app.rs` — ~7203 lines
-- `src/sql.rs` — ~6589 lines
+- `src/sql.rs` — ~5914 lines (down from ~6589 after the search split)
+- `src/sql/search.rs` — ~1183 lines (new)
 - `src/tab.rs` — ~5738 lines
 - `src/parsers.rs` — ~2710 lines
 - `src/dialog.rs` — ~1721 lines
+
+**Status (first step done):** Extracted the self-contained search group (the 4 `search_*_metadata` helpers, `search_video`/`search_audio`/`search_image`, `stuff_items`, and `search_items`) from `sql.rs` into a new `src/sql/search.rs` submodule. `sql.rs` declares `mod search; pub use search::*;` so **every existing `crate::sql::search_*` call-site and the `mod tests` references keep working unchanged** — no external edits were needed. The search items reach the parent's `SearchData`, `Tag`, metadata structs, `escape_like_term`, `file_by_id`, and the `video`/`audio`/`image` builders via `super::`. All 32 tests pass, clippy is clean (0 errors, 0 unused imports), and `cargo fmt --check` is green.
 
 These files mix concerns (state, message handling, UI construction, persistence, parsing). This slows review, increases merge conflicts, and makes it hard to test a single behavior.
 
@@ -255,7 +258,7 @@ These align with the open items already tracked in `Todo.md` and the README; fla
 7. ⬜ Centralize blocking work on `spawn_blocking` with cancellation (`3.3`) — spawn sites audited (all intentional fire-and-forget workers); cancellation still missing.
 
 **Phase 3 — Architecture & quality**
-8. Split `sql.rs` and `app.rs` into modules; unify the three search implementations (`2.1`, `2.2`).
+8. ⬜ (partial) Split `sql.rs` and `app.rs` into modules — ✅ `sql.rs` search group extracted to `sql/search.rs` (re-exported, no call-site changes); ⬜ `app.rs`/`tab.rs`/`parsers.rs` still monolithic; ⬜ unify the three search implementations (`2.1`, `2.2`).
 9. Refactor `SearchData` to a `HashSet<SearchType>` with derived traits (`2.3`); clean up the `Action`/`Message` mapping (`2.4`).
 10. Standardize error handling with `anyhow`/`thiserror` and consolidate logging (`4.4`, `4.5`).
 
