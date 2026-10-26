@@ -37,7 +37,13 @@ pub enum SearchType {
     Tag,
 }
 
-#[derive(Clone, Debug, Eq, PartialOrd, Hash)]
+// `SearchData` derives `Eq`, `PartialEq` and `Hash` because it is used as the
+// payload of `tab::Location::DBSearch`, which itself derives those traits for
+// tab-location identity/deduplication. That requires an exact, symmetric and
+// transitive `PartialEq`, so the free-text fields are now compared
+// case-sensitively (the previous hand-written case-insensitive `PartialEq` was
+// unsound alongside `Eq`/`Hash` and is removed).
+#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Hash)]
 pub struct SearchData {
     pub search_id: u32,
     pub search_string: String,
@@ -158,43 +164,6 @@ impl SearchData {
     ) {
         let id = insert_search(sql_connection.clone(), self.clone());
         self.search_id = id;
-    }
-}
-
-impl PartialEq for SearchData {
-    fn eq(&self, other: &Self) -> bool {
-        let res = self.from_string.to_ascii_lowercase() == other.from_string.to_ascii_lowercase()
-            && self.from_value == other.from_value
-            && self.from_date == other.from_date
-            && self.to_string.to_ascii_lowercase() == other.to_string.to_ascii_lowercase()
-            && self.to_value == other.to_value
-            && self.to_date == other.to_date
-            && self.image == other.image
-            && self.video == other.video
-            && self.audio == other.audio
-            && self.filepath == other.filepath
-            && self.title == other.title
-            && self.description == other.description
-            && self.actor == other.actor
-            && self.director == other.director
-            && self.artist == other.artist
-            && self.album_artist == other.album_artist
-            && self.duration == other.duration
-            && self.creation_date == other.creation_date
-            && self.modification_date == other.modification_date
-            && self.release_date == other.release_date
-            && self.lense_model == other.lense_model
-            && self.focal_length == other.focal_length
-            && self.exposure_time == other.exposure_time
-            && self.fnumber == other.fnumber
-            && self.gps_latitude == other.gps_latitude
-            && self.gps_longitude == other.gps_longitude
-            && self.gps_altitude == other.gps_altitude
-            && self.tags == other.tags;
-        if !res {
-            return false;
-        }
-        return true;
     }
 }
 

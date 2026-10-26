@@ -1,6 +1,6 @@
 // Copyright 2023 System76 <info@system76.com>
 // SPDX-License-Identifier: GPL-3.0-only
-// 
+//
 // Modifications:
 // Copyright 2024 Alexander Schwarzkopf
 
@@ -12,8 +12,8 @@ use cosmic::{
 };
 pub use gstreamer as gst;
 //pub use gstreamer_app as gst_app;
-use gstreamer::prelude::*;
 use crate::video::video::Video;
+use gstreamer::prelude::*;
 //use crate::video::video_player::VideoPlayer;
 /*
 use iced_video_player::{
@@ -148,7 +148,6 @@ pub struct VideoView {
 }
 
 impl VideoView {
-
     /// Creates the application, and optionally emits command on initialize.
     pub fn new() -> Self {
         let video_view = VideoView {
@@ -189,7 +188,7 @@ impl VideoView {
         self.text_codes = Vec::new();
         self.current_text = -1;
     }
-    
+
     pub fn load(&mut self) {
         let videopath;
         let mut subtitlepath = None;
@@ -312,7 +311,6 @@ impl VideoView {
             }
         }
         println!("updated flags {:?}", pipeline.property_value("flags"));
- 
     }
 
     pub fn update_controls(&mut self, in_use: bool) {
@@ -336,10 +334,10 @@ impl VideoView {
                     Ok(url) => {
                         self.videopath_opt = Some(url);
                         self.load();
-                    },
-                    _ => {},
+                    }
+                    _ => {}
                 }
-            },
+            }
             Message::PlayPause => {
                 //TODO: cleanest way to close dropdowns
                 self.dropdown_opt = None;
@@ -403,6 +401,4 @@ impl VideoView {
             _ => {}
         }
     }
-
 }
-

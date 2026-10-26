@@ -1,6 +1,6 @@
 // Copyright 2023 System76 <info@system76.com>
 // SPDX-License-Identifier: GPL-3.0-only
-// 
+//
 // Modifications:
 // Copyright 2024 Alexander Schwarzkopf
 
@@ -18,7 +18,8 @@ use tokio::sync::{mpsc, Mutex as TokioMutex};
 use crate::{
     app::{DialogPage, Message},
     config::IconSizes,
-    err_str, fl,
+    err_str,
+    fl,
     //mime_icon::mime_for_path,
     //spawn_detached::spawn_detached,
     //tab,
@@ -451,15 +452,13 @@ impl Operation {
                 "copying",
                 items = paths.len(),
                 from = paths_parent_name(paths),
-                to = file_name(to)
-                //progress = progress()
+                to = file_name(to) //progress = progress()
             ),
             Self::Delete { paths } => fl!(
                 "moving",
                 items = paths.len(),
                 from = paths_parent_name(paths),
-                to = fl!("trash")
-                //progress = progress()
+                to = fl!("trash") //progress = progress()
             ),
             Self::EmptyTrash => fl!(
                 "emptying-trash" 
@@ -469,8 +468,7 @@ impl Operation {
                 "moving",
                 items = paths.len(),
                 from = paths_parent_name(paths),
-                to = file_name(to)
-                //progress = progress()
+                to = file_name(to) //progress = progress()
             ),
             Self::NewFolder { path } => fl!(
                 "creating",
@@ -481,9 +479,9 @@ impl Operation {
                 fl!("renaming", from = file_name(from), to = file_name(to))
             }
             Self::Restore { items } => fl!(
-                "restoring", items = items.len()
-                //, progress = progress()
-        ),
+                "restoring",
+                items = items.len() //, progress = progress()
+            ),
         }
     }
 
@@ -526,8 +524,7 @@ impl Operation {
             | Self::EmptyTrash
             | Self::Move { .. }
             | Self::Restore { .. } => true,
-            Self::NewFolder { .. }
-            | Self::Rename { .. } => false,
+            Self::NewFolder { .. } | Self::Rename { .. } => false,
         }
     }
 
@@ -669,8 +666,8 @@ mod tests {
     use crate::{
         app::{
             test_utils::{
-                empty_fs, filter_dirs, filter_files, simple_fs, NAME_LEN,
-                NUM_DIRS, NUM_FILES, NUM_HIDDEN, NUM_NESTED,
+                empty_fs, filter_dirs, filter_files, simple_fs, NAME_LEN, NUM_DIRS, NUM_FILES,
+                NUM_HIDDEN, NUM_NESTED,
             },
             DialogPage, Message,
         },

@@ -1,7 +1,7 @@
 // Copyright [iced-video-player]()
-// SPDX-License-Identifier: MIT 
+// SPDX-License-Identifier: MIT
 // [MIT](http://opensource.org/licenses/MIT)
-// 
+//
 // Modifications:
 // Copyright 2024 Alexander Schwarzkopf
 
@@ -92,14 +92,15 @@ impl VideoPipeline {
             push_constant_ranges: &[],
         });
 
-        let pipeline = device.create_render_pipeline(
-            &wgpu::RenderPipelineDescriptor {
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("iced_video_player pipeline"),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: "vs_main",
-                compilation_options: PipelineCompilationOptions {..Default::default()},
+                compilation_options: PipelineCompilationOptions {
+                    ..Default::default()
+                },
                 buffers: &[],
             },
             primitive: wgpu::PrimitiveState::default(),
@@ -112,7 +113,9 @@ impl VideoPipeline {
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
                 entry_point: "fs_main",
-                compilation_options: PipelineCompilationOptions {..Default::default()},
+                compilation_options: PipelineCompilationOptions {
+                    ..Default::default()
+                },
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
                     blend: None,

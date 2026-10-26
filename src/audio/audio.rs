@@ -148,7 +148,6 @@ impl Internal {
     pub(crate) fn paused(&self) -> bool {
         self.source.state(gst::ClockTime::ZERO).1 == gst::State::Paused
     }
-
 }
 
 /// A multimedia Audio loaded from a URI (e.g., a local file path or HTTP stream).
@@ -177,16 +176,13 @@ impl Audio {
     pub fn new(uri: &str, posterpath: Option<String>) -> Result<Self, Error> {
         gst::init()?;
 
-        let pipeline = format!(
-            "playbin uri=\"{}\" ",
-            uri
-        );
+        let pipeline = format!("playbin uri=\"{}\" ", uri);
 
         let pipeline = gst::parse::launch(pipeline.as_ref())
-        .unwrap()
-        .downcast::<gst::Pipeline>()
-        .map_err(|_| super::Error::Cast)
-        .unwrap();
+            .unwrap()
+            .downcast::<gst::Pipeline>()
+            .map_err(|_| super::Error::Cast)
+            .unwrap();
 
         Self::from_gst_pipeline(pipeline, posterpath)
     }
@@ -197,7 +193,7 @@ impl Audio {
     /// Non-`playbin` pipelines given here may not have full functionality.
     pub fn from_gst_pipeline(
         pipeline: gst::Pipeline,
-        posterpath: Option<String>
+        posterpath: Option<String>,
     ) -> Result<Self, Error> {
         gst::init()?;
         static NEXT_ID: AtomicU64 = AtomicU64::new(0);
@@ -223,11 +219,11 @@ impl Audio {
         } else {
             realposterpath = Some("res/audio_dummy.jpg".to_string());
         }
-        
+
         let (v, width, height) = crate::audio::coverart::frame_from_image(realposterpath.clone());
         let frame = Arc::new(Mutex::new(v));
         let alive = Arc::new(AtomicBool::new(true));
-        
+
         Ok(Audio(RwLock::new(Internal {
             id,
 
@@ -284,7 +280,7 @@ impl Audio {
     pub fn size(&self) -> (u32, u32) {
         (self.read().width, self.read().height)
     }
-    
+
     /// Get if the audio is muted or not.
     pub fn muted(&self) -> bool {
         self.read().source.property("mute")

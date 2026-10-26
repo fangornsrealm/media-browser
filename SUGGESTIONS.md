@@ -190,9 +190,9 @@ Git deps without a locked rev make builds less reproducible and vulnerable to up
 ### 6.4 ✅ DONE (minimal) — No CI / lint gate
 There is no `.github` workflow. The `justfile` has `check` (clippy `-W clippy::pedantic`) and `dev` (fmt) recipes but nothing enforces them.
 
-**Status:** Added `.github/workflows/ci.yml` with two jobs: `fmt` (`cargo fmt --all --check`) and `clippy-test` (system deps + `cargo clippy --lib` + `cargo test --lib`, with a cargo cache). The fmt and clippy steps are **informational** (`continue-on-error: true`) on purpose: the tree currently carries ~161 pre-existing formatting diffs across ~35 files and 10 pre-existing clippy errors (8× `never_loop` in `app.rs`/`tab.rs` plus two others), so a hard gate would fail on unrelated debt. The real gate is `cargo test --lib`, which passes. Next steps: land a dedicated `cargo fmt` pass and fix the clippy errors, then flip both `continue-on-error` flags off; consider a deb/rpm build matrix and `clippy::unwrap_used`/`expect_used` lints to curb 4.1.
+**Status:** Added `.github/workflows/ci.yml` with two jobs: `fmt` (`cargo fmt --all --check`) and `clippy-test` (system deps + `cargo clippy --lib` + `cargo test --lib`, with a cargo cache). All three steps are **hard gates** (no `continue-on-error`). Before enabling them, the ~161 pre-existing formatting diffs across ~35 files were cleaned up with `cargo fmt`, and the 10 pre-existing clippy errors were fixed (8× `never_loop` in `app.rs`, 1× `arithmetic_side_effects` in `parsers.rs`, 1× `derived_hash_with_manual_eq` in `sql.rs`). All 32 tests pass. Remaining: consider a deb/rpm build matrix and `clippy::unwrap_used`/`expect_used` lints to curb 4.1.
 
-**Fix (original):** Add a GitHub Actions workflow that runs `cargo fmt --check`, `just check` (clippy pedantic, `--all-features`), `cargo test`, and a matrix build (deb + rpm) on PRs. Add `clippy::unwrap_used` and `clippy::expect_used` as lints to curb 4.1.
+**Remaining (nice-to-have):** Add a deb/rpm build matrix and `clippy::unwrap_used`/`expect_used` lints to curb 4.1; consider `just check` (clippy pedantic, `--all-features`) as an additional gate.
 
 ### 6.5 `just run` builds `--release`
 `justfile` `run` recipe compiles with `cargo build --release` then executes the release binary. That is slow for iterative UI work.
@@ -240,7 +240,7 @@ These align with the open items already tracked in `Todo.md` and the README; fla
 1. ✅ Parameterize all SQL (`1.1`), remove `as`-cast formatting (`1.2`).
 2. ⬜ Reduce `unwrap`/`expect` crash paths on common inputs (`4.1`); ✅ fix the `PartialEq` dup (`4.2`).
 3. ✅ (partial) Add regression tests for search (including injection) and `SearchData` equality (`5.1`); ⬜ `5.3`.
-4. ✅ (minimal) Add a minimal CI (fmt + clippy + test) (`6.4`) — workflow added; fmt/clippy are non-blocking pending the existing fmt/lint debt, tests are the hard gate.
+4. ✅ Add a minimal CI (fmt + clippy + test) (`6.4`) — workflow added with hard gates; the ~161 fmt diffs and 10 clippy errors were cleaned up first, so `cargo fmt --check`, `cargo clippy --lib`, and `cargo test --lib` all pass and are enforced.
 
 **Phase 2 — Performance**
 5. ✅ Eliminate the N+1 search queries with joins (`3.1`) — all three `search_*_metadata` helpers now use single `JOIN file_metadata` queries with inline row extraction.

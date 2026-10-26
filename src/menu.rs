@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// 
+//
 // Modifications:
 // Copyright 2024 Alexander Schwarzkopf
 
@@ -53,12 +53,8 @@ pub fn context_menu<'a>(
 
     let menu_item = |label, action| {
         let key = find_key(&action);
-        menu_button!(
-            text::body(label),
-            horizontal_space(),
-            text::body(key)
-        )
-        .on_press(tab::Message::ContextAction(action))
+        menu_button!(text::body(label), horizontal_space(), text::body(key))
+            .on_press(tab::Message::ContextAction(action))
     };
 
     let (sort_name, sort_direction, _) = tab.sort_options();
@@ -99,32 +95,35 @@ pub fn context_menu<'a>(
     match (&tab.mode, &tab.location) {
         (
             tab::Mode::Audio | tab::Mode::Image | tab::Mode::Video,
-            Location::DBSearch(_) | Location::Tag(_) | Location::Collection(_) | Location::Path(_) | Location::Search(_, _, _, _) | Location::Recents,
-        ) => {
-        }
-        (
-            tab::Mode::App | tab::Mode::Desktop | tab::Mode::Browser,
-            Location::DBSearch(_),
-        ) => {
+            Location::DBSearch(_)
+            | Location::Tag(_)
+            | Location::Collection(_)
+            | Location::Path(_)
+            | Location::Search(_, _, _, _)
+            | Location::Recents,
+        ) => {}
+        (tab::Mode::App | tab::Mode::Desktop | tab::Mode::Browser, Location::DBSearch(_)) => {
             children.push(menu_item(fl!("search-context"), Action::SearchDB).into());
             children.push(divider::horizontal::light().into());
             children.push(menu_item(fl!("zoom-in"), Action::ZoomIn).into());
             children.push(menu_item(fl!("zoom-out"), Action::ZoomOut).into());
             children.push(menu_item(fl!("default-size"), Action::ZoomDefault).into());
             children.push(divider::horizontal::light().into());
-            children.push(sort_item(fl!("media-browser"), HeadingOptions::MediaSpecific));
+            children.push(sort_item(
+                fl!("media-browser"),
+                HeadingOptions::MediaSpecific,
+            ));
             children.push(sort_item(fl!("sort-by-name"), HeadingOptions::Name));
             children.push(sort_item(fl!("sort-by-modified"), HeadingOptions::Modified));
             children.push(sort_item(fl!("sort-by-size"), HeadingOptions::Size));
         }
+        (tab::Mode::App | tab::Mode::Desktop | tab::Mode::Browser, Location::Tag(_)) => {}
         (
             tab::Mode::App | tab::Mode::Desktop | tab::Mode::Browser,
-            Location::Tag(_),
-        ) => {
-        }
-        (
-            tab::Mode::App | tab::Mode::Desktop | tab::Mode::Browser,
-            Location::Path(_) | Location::Collection(_) | Location::Search(_, _, _, _) | Location::Recents,
+            Location::Path(_)
+            | Location::Collection(_)
+            | Location::Search(_, _, _, _)
+            | Location::Recents,
         ) => {
             children.push(menu_item(fl!("search-context"), Action::SearchDB).into());
             if selected > 0 {
@@ -140,8 +139,13 @@ pub fn context_menu<'a>(
                 if selected == selected_dir {
                     children
                         .push(menu_item(fl!("open-in-new-window"), Action::OpenInNewWindow).into());
-                    children
-                        .push(menu_item(fl!("recursive-scan-directories"), Action::RecursiveScanDirectories).into());
+                    children.push(
+                        menu_item(
+                            fl!("recursive-scan-directories"),
+                            Action::RecursiveScanDirectories,
+                        )
+                        .into(),
+                    );
                 }
                 children.push(divider::horizontal::light().into());
                 children.push(menu_item(fl!("rename"), Action::Rename).into());
@@ -165,7 +169,10 @@ pub fn context_menu<'a>(
                 children.push(menu_item(fl!("paste"), Action::Paste).into());
                 children.push(divider::horizontal::light().into());
                 // TODO: Nested menu
-                children.push(sort_item(fl!("media-browser"), HeadingOptions::MediaSpecific));
+                children.push(sort_item(
+                    fl!("media-browser"),
+                    HeadingOptions::MediaSpecific,
+                ));
                 children.push(sort_item(fl!("sort-by-name"), HeadingOptions::Name));
                 children.push(sort_item(fl!("sort-by-modified"), HeadingOptions::Modified));
                 children.push(sort_item(fl!("sort-by-size"), HeadingOptions::Size));
@@ -173,7 +180,12 @@ pub fn context_menu<'a>(
         }
         (
             tab::Mode::Dialog(dialog_kind),
-            Location::DBSearch(_) | Location::Tag(_) | Location::Collection(_) | Location::Path(_) | Location::Search(_, _, _, _) | Location::Recents,
+            Location::DBSearch(_)
+            | Location::Tag(_)
+            | Location::Collection(_)
+            | Location::Path(_)
+            | Location::Search(_, _, _, _)
+            | Location::Recents,
         ) => {
             if selected > 0 {
                 if selected_dir == 1 && selected == 1 || selected_dir == 0 {
@@ -196,7 +208,10 @@ pub fn context_menu<'a>(
                 if !children.is_empty() {
                     children.push(divider::horizontal::light().into());
                 }
-                children.push(sort_item(fl!("media-browser"), HeadingOptions::MediaSpecific));
+                children.push(sort_item(
+                    fl!("media-browser"),
+                    HeadingOptions::MediaSpecific,
+                ));
                 children.push(sort_item(fl!("sort-by-name"), HeadingOptions::Name));
                 children.push(sort_item(fl!("sort-by-modified"), HeadingOptions::Modified));
                 children.push(sort_item(fl!("sort-by-size"), HeadingOptions::Size));
@@ -214,7 +229,10 @@ pub fn context_menu<'a>(
                 if !children.is_empty() {
                     children.push(divider::horizontal::light().into());
                 }
-                children.push(sort_item(fl!("media-browser"), HeadingOptions::MediaSpecific));
+                children.push(sort_item(
+                    fl!("media-browser"),
+                    HeadingOptions::MediaSpecific,
+                ));
                 children.push(sort_item(fl!("sort-by-name"), HeadingOptions::Name));
                 children.push(sort_item(fl!("sort-by-modified"), HeadingOptions::Modified));
                 children.push(sort_item(fl!("sort-by-size"), HeadingOptions::Size));
@@ -233,7 +251,10 @@ pub fn context_menu<'a>(
                     .push(menu_item(fl!("restore-from-trash"), Action::RestoreFromTrash).into());
             } else {
                 // TODO: Nested menu
-                children.push(sort_item(fl!("media-browser"), HeadingOptions::MediaSpecific));
+                children.push(sort_item(
+                    fl!("media-browser"),
+                    HeadingOptions::MediaSpecific,
+                ));
                 children.push(sort_item(fl!("sort-by-name"), HeadingOptions::Name));
                 children.push(sort_item(fl!("sort-by-modified"), HeadingOptions::Modified));
                 children.push(sort_item(fl!("sort-by-size"), HeadingOptions::Size));
@@ -319,7 +340,11 @@ pub fn dialog_menu<'a>(
             menu::items(
                 key_binds,
                 vec![
-                    sort_item(fl!("media-browser"), tab::HeadingOptions::MediaSpecific, true),
+                    sort_item(
+                        fl!("media-browser"),
+                        tab::HeadingOptions::MediaSpecific,
+                        true,
+                    ),
                     sort_item(fl!("sort-a-z"), tab::HeadingOptions::Name, true),
                     sort_item(fl!("sort-z-a"), tab::HeadingOptions::Name, false),
                     sort_item(
@@ -379,7 +404,7 @@ pub fn dialog_menu<'a>(
                         Action::ToggleFoldersFirst,
                     ),
                     menu::Item::CheckBox(fl!("show-details"), None, show_details, Action::Preview),
-                 ],
+                ],
             ),
         ),
     ])
@@ -434,7 +459,11 @@ pub fn menu_bar<'a>(
                     menu::Item::Divider,
                     menu::Item::Button(fl!("rename"), None, Action::Rename),
                     menu::Item::Divider,
-                    menu::Item::Button(fl!("recursive-scan-directories"), None, Action::RecursiveScanDirectories),
+                    menu::Item::Button(
+                        fl!("recursive-scan-directories"),
+                        None,
+                        Action::RecursiveScanDirectories,
+                    ),
                     menu::Item::Button(fl!("search-context"), None, Action::SearchDB),
                     menu::Item::Divider,
                     menu::Item::Button(fl!("add-to-sidebar"), None, Action::AddToSidebar),
@@ -514,7 +543,11 @@ pub fn menu_bar<'a>(
             menu::items(
                 key_binds,
                 vec![
-                    sort_item(fl!("media-browser"), tab::HeadingOptions::MediaSpecific, true),
+                    sort_item(
+                        fl!("media-browser"),
+                        tab::HeadingOptions::MediaSpecific,
+                        true,
+                    ),
                     sort_item(fl!("sort-a-z"), tab::HeadingOptions::Name, true),
                     sort_item(fl!("sort-z-a"), tab::HeadingOptions::Name, false),
                     sort_item(
@@ -549,13 +582,11 @@ pub fn menu_bar<'a>(
 }
 
 pub fn location_context_menu<'a>(ancestor_index: usize) -> Element<'a, tab::Message> {
-    let children = vec![
-        menu_button!(text::body(fl!("open-in-new-window")))
-            .on_press(tab::Message::LocationMenuAction(
-                LocationMenuAction::OpenInNewWindow(ancestor_index),
-            ))
-            .into(),
-        ];
+    let children = vec![menu_button!(text::body(fl!("open-in-new-window")))
+        .on_press(tab::Message::LocationMenuAction(
+            LocationMenuAction::OpenInNewWindow(ancestor_index),
+        ))
+        .into()];
 
     container(column::with_children(children))
         .padding(1)

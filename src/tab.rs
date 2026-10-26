@@ -451,10 +451,10 @@ pub fn scan_collection(
     }
     // generate list of episodes
     let metadata = crate::sql::collection(
-            sql_connection.clone(),
-            &crate::parsers::osstr_to_string(tab_path.clone().into_os_string()),
-            &data,
-        );
+        sql_connection.clone(),
+        &crate::parsers::osstr_to_string(tab_path.clone().into_os_string()),
+        &data,
+    );
     for e in metadata.episodes.iter() {
         let path = crate::parsers::osstr_to_string(e.path.clone().into_os_string());
         let mut videometadata = crate::sql::video(sql_connection.clone(), &path, &data);
@@ -469,7 +469,6 @@ pub fn scan_collection(
         return Vec::new();
     }
 }
-
 
 pub fn scan_path(
     sql_connection: std::sync::Arc<std::sync::Mutex<rusqlite::Connection>>,
@@ -541,14 +540,11 @@ pub fn scan_path_runner(
                             if let Some(basename) = path.file_stem() {
                                 nfos.push(crate::parsers::osstr_to_string(basename.to_os_string()));
                             }
-                        } else if mime.type_() == mime_guess::mime::AUDIO
-                        {
+                        } else if mime.type_() == mime_guess::mime::AUDIO {
                             audios.push(path.clone());
-                        } else if mime.type_() == mime_guess::mime::VIDEO
-                        {
+                        } else if mime.type_() == mime_guess::mime::VIDEO {
                             videos.push(path.clone());
-                        } else if mime.type_() == mime_guess::mime::IMAGE
-                        {
+                        } else if mime.type_() == mime_guess::mime::IMAGE {
                             images.push(path.clone());
                         }
                     }
@@ -2710,17 +2706,15 @@ impl Tab {
             },
             Message::EditLocation(edit_location) => {
                 match edit_location.clone() {
-                    Some(location) => {
-                        match location {
-                            Location::Path(_path) => {
-                                self.edit_location = edit_location.clone();
-                            },
-                            Location::Collection(collection) => {
-                                self.edit_location = Some(Location::Path(collection.path.clone()));
-                            },
-                            _ => {
-                                self.edit_location = edit_location.clone();
-                            }
+                    Some(location) => match location {
+                        Location::Path(_path) => {
+                            self.edit_location = edit_location.clone();
+                        }
+                        Location::Collection(collection) => {
+                            self.edit_location = Some(Location::Path(collection.path.clone()));
+                        }
+                        _ => {
+                            self.edit_location = edit_location.clone();
                         }
                     },
                     None => {}
@@ -2972,18 +2966,16 @@ impl Tab {
                             commands.push(Command::Open(path.clone()));
                         }
                     }
-                    Location::Collection(collection) => {
-                        match collection.path.clone().parent() {
-                            Some(path) => {
-                                if path.is_dir() {
-                                    cd = Some(Location::Path(path.to_path_buf()));
-                                } else {
-                                    commands.push(Command::Open(collection.path.clone()));
-                                }
-                            },
-                            None => {}
+                    Location::Collection(collection) => match collection.path.clone().parent() {
+                        Some(path) => {
+                            if path.is_dir() {
+                                cd = Some(Location::Path(path.to_path_buf()));
+                            } else {
+                                commands.push(Command::Open(collection.path.clone()));
+                            }
                         }
-                    }
+                        None => {}
+                    },
                     _ => {
                         cd = Some(location);
                     }
@@ -3735,12 +3727,15 @@ impl Tab {
                             .padding(space_xxs)
                             .class(theme::Button::Icon),
                         );
-                        let pathstring = crate::parsers::osstr_to_string(path.clone().into_os_string());
+                        let pathstring =
+                            crate::parsers::osstr_to_string(path.clone().into_os_string());
                         row = row.push(
                             widget::text_input("", pathstring)
                                 .id(self.edit_location_id.clone())
                                 .on_input(|input| {
-                                    Message::EditLocation(Some(location.with_path(PathBuf::from(input))))
+                                    Message::EditLocation(Some(
+                                        location.with_path(PathBuf::from(input)),
+                                    ))
                                 })
                                 .on_submit(Message::Location(location.clone()))
                                 .line_height(1.0),
@@ -3753,7 +3748,7 @@ impl Tab {
                             column3 = column3.push(heading_rule);
                         }
                         return column3.into();
-                    },
+                    }
                     Location::Collection(collection) => {
                         row = row.push(
                             widget::button::custom(
@@ -3763,12 +3758,16 @@ impl Tab {
                             .padding(space_xxs)
                             .class(theme::Button::Icon),
                         );
-                        let pathstring = crate::parsers::osstr_to_string(collection.path.clone().into_os_string());
+                        let pathstring = crate::parsers::osstr_to_string(
+                            collection.path.clone().into_os_string(),
+                        );
                         row = row.push(
                             widget::text_input("", pathstring)
                                 .id(self.edit_location_id.clone())
                                 .on_input(|input| {
-                                    Message::EditLocation(Some(location.with_path(PathBuf::from(input))))
+                                    Message::EditLocation(Some(
+                                        location.with_path(PathBuf::from(input)),
+                                    ))
                                 })
                                 .on_submit(Message::Location(location.clone()))
                                 .line_height(1.0),
@@ -3781,39 +3780,41 @@ impl Tab {
                             column3 = column3.push(heading_rule);
                         }
                         return column3.into();
-                    },
-                    _ => {}
-                }
-            },
-            _ => {
-                match &self.location {
-                    Location::Path(path) => {
-                        row = row.push(
-                            crate::mouse_area::MouseArea::new(
-                                widget::button::custom(widget::icon::from_name("edit-symbolic").size(16))
-                                    .padding(space_xxs)
-                                    .class(theme::Button::Icon)
-                                    .on_press(Message::EditLocation(Some(self.location.clone()))),
-                            )
-                            .on_middle_press(move |_| Message::OpenInNewTab(path.clone())),
-                        );
-                        w += 16.0 + 2.0 * space_xxs as f32;
-                    },
-                    Location::Collection(collection) => {
-                        row = row.push(
-                            crate::mouse_area::MouseArea::new(
-                                widget::button::custom(widget::icon::from_name("edit-symbolic").size(16))
-                                    .padding(space_xxs)
-                                    .class(theme::Button::Icon)
-                                    .on_press(Message::EditLocation(Some(self.location.clone()))),
-                            )
-                            .on_middle_press(move |_| Message::OpenInNewTab(collection.path.clone())),
-                        );
-                        w += 16.0 + 2.0 * space_xxs as f32;
-                    },
+                    }
                     _ => {}
                 }
             }
+            _ => match &self.location {
+                Location::Path(path) => {
+                    row = row.push(
+                        crate::mouse_area::MouseArea::new(
+                            widget::button::custom(
+                                widget::icon::from_name("edit-symbolic").size(16),
+                            )
+                            .padding(space_xxs)
+                            .class(theme::Button::Icon)
+                            .on_press(Message::EditLocation(Some(self.location.clone()))),
+                        )
+                        .on_middle_press(move |_| Message::OpenInNewTab(path.clone())),
+                    );
+                    w += 16.0 + 2.0 * space_xxs as f32;
+                }
+                Location::Collection(collection) => {
+                    row = row.push(
+                        crate::mouse_area::MouseArea::new(
+                            widget::button::custom(
+                                widget::icon::from_name("edit-symbolic").size(16),
+                            )
+                            .padding(space_xxs)
+                            .class(theme::Button::Icon)
+                            .on_press(Message::EditLocation(Some(self.location.clone()))),
+                        )
+                        .on_middle_press(move |_| Message::OpenInNewTab(collection.path.clone())),
+                    );
+                    w += 16.0 + 2.0 * space_xxs as f32;
+                }
+                _ => {}
+            },
         }
         let mut children: Vec<Element<_>> = Vec::new();
         match &self.location {
@@ -4123,7 +4124,13 @@ impl Tab {
         .into()
     }
 
-    pub fn grid_view(&self) -> (Option<Element<'static, Message>>, Element<'_, Message>, bool) {
+    pub fn grid_view(
+        &self,
+    ) -> (
+        Option<Element<'static, Message>>,
+        Element<'_, Message>,
+        bool,
+    ) {
         let cosmic_theme::Spacing {
             space_m,
             space_xxs,
@@ -4425,7 +4432,13 @@ impl Tab {
         )
     }
 
-    pub fn list_view(&self) -> (Option<Element<'static, Message>>, Element<'_, Message>, bool) {
+    pub fn list_view(
+        &self,
+    ) -> (
+        Option<Element<'static, Message>>,
+        Element<'_, Message>,
+        bool,
+    ) {
         let cosmic_theme::Spacing {
             space_m,
             space_s,

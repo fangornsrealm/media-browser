@@ -139,7 +139,11 @@ pub fn create_thumbnail(path: &std::path::PathBuf, max_size: u32) -> String {
                 match thumb.write_with_encoder(encoder) {
                     Ok(()) => return thumbstring,
                     Err(error) => {
-                        log::error!("Failed to create thumbnail for file {}: {}!", path.display(), error);
+                        log::error!(
+                            "Failed to create thumbnail for file {}: {}!",
+                            path.display(),
+                            error
+                        );
                         return String::new();
                     }
                 }

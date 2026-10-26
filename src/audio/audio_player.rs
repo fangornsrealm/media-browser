@@ -1,14 +1,14 @@
 // Copyright [iced-video-player]()
-// SPDX-License-Identifier: MIT 
+// SPDX-License-Identifier: MIT
 // [MIT](http://opensource.org/licenses/MIT)
-// 
+//
 // Modifications:
 // Copyright 2024 Alexander Schwarzkopf
 
-use super::{pipeline::VideoPrimitive, audio::Audio};
+use super::{audio::Audio, pipeline::VideoPrimitive};
 use cosmic::iced::{
     advanced::{self, layout, widget, Widget},
-    Element
+    Element,
 };
 use cosmic::iced_wgpu::primitive::Renderer as PrimitiveRenderer;
 use std::marker::PhantomData;
@@ -128,7 +128,6 @@ where
         }
     }
 
-
     pub fn on_missing_plugin<F>(self, on_missing_plugin: F) -> Self
     where
         F: 'a + Fn(gst::Message) -> Message,
@@ -169,7 +168,6 @@ where
         _renderer: &Renderer,
         limits: &layout::Limits,
     ) -> layout::Node {
-
         // based on `Image::layout`
         let (width, height) = self.audio.size();
         let image_size = cosmic::iced::Size::new(width as f32, height as f32);
@@ -209,7 +207,8 @@ where
             adjusted_fit.width / image_size.width,
             adjusted_fit.height / image_size.height,
         );
-        let final_size = cosmic::iced::Size::new(image_size.width * scale.x, image_size.height * scale.y);
+        let final_size =
+            cosmic::iced::Size::new(image_size.width * scale.x, image_size.height * scale.y);
 
         let position = match self.content_fit {
             cosmic::iced::ContentFit::None => cosmic::iced::Point::new(
@@ -249,7 +248,8 @@ where
     ) -> cosmic::iced::event::Status {
         let mut inner = self.audio.write();
 
-        if let cosmic::iced::Event::Window(cosmic::iced::window::Event::RedrawRequested(_)) = event {
+        if let cosmic::iced::Event::Window(cosmic::iced::window::Event::RedrawRequested(_)) = event
+        {
             if inner.restart_stream || (!inner.is_eos && !inner.paused()) {
                 let mut restart_stream = false;
                 if inner.restart_stream {

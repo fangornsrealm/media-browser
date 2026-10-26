@@ -1,6 +1,6 @@
 // Copyright 2023 System76 <info@system76.com>
 // SPDX-License-Identifier: GPL-3.0-only
-// 
+//
 // Modifications:
 // Copyright 2024 Alexander Schwarzkopf
 
@@ -25,9 +25,6 @@ use std::{
 };
 
 use crate::config::Config;
-
-
-
 
 static CONTROLS_TIMEOUT: Duration = Duration::new(2, 0);
 
@@ -150,7 +147,6 @@ pub struct AudioView {
 }
 
 impl AudioView {
-
     /// Creates the application, and optionally emits command on initialize.
     pub fn new() -> Self {
         let audio_view = AudioView {
@@ -192,7 +188,7 @@ impl AudioView {
         self.text_codes = Vec::new();
         self.current_text = -1;
     }
-    
+
     pub fn load(&mut self) {
         let audiopath;
         if let Some(audiopathstr) = &self.audiopath_opt {
@@ -206,11 +202,11 @@ impl AudioView {
         //TODO: remove unwraps and enable playback of files with only audio.
         //if let Ok(audio_url) = url::Url::from_file_path(std::path::PathBuf::from(&audiopath)) {
         let audio = match crate::audio::audio::Audio::new(&audiopath, self.posterpath_opt.clone()) {
-                Ok(ok) => ok,
-                Err(error) => {
-                    log::error!("Failed to open audio file {}: {}", audiopath, error);
-                    return;
-                }
+            Ok(ok) => ok,
+            Err(error) => {
+                log::error!("Failed to open audio file {}: {}", audiopath, error);
+                return;
+            }
         };
 
         self.duration = audio.duration().as_secs_f64();
@@ -249,7 +245,7 @@ impl AudioView {
                     format!("Subtitle #{i}")
                 });
         }
-        
+
         self.current_text = pipeline.property::<i32>("current-text");
 
         //TODO: Flags can be used to enable/disable subtitles
@@ -307,7 +303,7 @@ impl AudioView {
                     }
                     self.load();
                 }
-            },
+            }
             Message::PlayPause => {
                 //TODO: cleanest way to close dropdowns
                 self.dropdown_opt = None;
@@ -370,6 +366,4 @@ impl AudioView {
             _ => {}
         }
     }
-
 }
-

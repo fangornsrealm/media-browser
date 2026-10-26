@@ -1,16 +1,10 @@
-
 use std::{
     io::{self, BufRead, BufReader, Write},
     process::{Command, Stdio},
     thread::JoinHandle,
 };
 
-fn free_file_name(
-    pattern: String,
-    ext: String,
-    numdigits: i32,
-    num: i32,
-) -> std::path::PathBuf {
+fn free_file_name(pattern: String, ext: String, numdigits: i32, num: i32) -> std::path::PathBuf {
     let to_name;
     if numdigits == 1 {
         to_name = format!("{}{:01}{}", pattern, num, ext);
@@ -40,7 +34,10 @@ pub fn rename_with_pattern(
         for path in selected {
             let mut ext = String::new();
             if let Some(extension) = path.extension() {
-                ext = format!(".{}", crate::parsers::osstr_to_string(extension.to_os_string()));
+                ext = format!(
+                    ".{}",
+                    crate::parsers::osstr_to_string(extension.to_os_string())
+                );
             }
             let name = crate::parsers::osstr_to_string(path.clone().into_os_string());
             if !path.is_dir() {
@@ -51,18 +48,17 @@ pub fn rename_with_pattern(
                 }
                 match std::fs::rename(path, to) {
                     Err(error) => log::error!("Failed to rename file {}: {}", name, error),
-                    _ => {},
+                    _ => {}
                 }
                 num += 1;
             }
         }
     }
-
 }
 
-// The code below works around the standard behaviour of printing and returning bytes. 
-// To parse the output of a program the Strings are much more useful. 
-// Therefore my version of capture returns a Vec<String>. 
+// The code below works around the standard behaviour of printing and returning bytes.
+// To parse the output of a program the Strings are much more useful.
+// Therefore my version of capture returns a Vec<String>.
 // Currently the source is no longer reproducible.
 
 pub struct CmdRunner {
@@ -109,10 +105,6 @@ impl CmdRunner {
         let stdout_output = stdout_thread.join().expect("failed to join stdout thread");
         let stderr_output = stderr_thread.join().expect("failed to join stderr thread");
 
-        Ok((
-            stdout_output?,
-            stderr_output?,
-        ))
+        Ok((stdout_output?, stderr_output?))
     }
 }
-

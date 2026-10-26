@@ -1,6 +1,6 @@
 // Copyright 2023 System76 <info@system76.com>
 // SPDX-License-Identifier: GPL-3.0-only
-// 
+//
 // Modifications:
 // Copyright 2024 Alexander Schwarzkopf
 
@@ -30,7 +30,7 @@ pub struct ImageView {
     pub image_path: String,
     pub image_path_loaded: String,
     pub width: Length,
-    pub height: Length, 
+    pub height: Length,
     pub min_scale: f32,
     pub max_scale: f32,
     pub scale_step: f32,
@@ -46,31 +46,30 @@ impl ImageView {
             image_path: "./examples/logo.png".to_string(),
             image_path_loaded: String::new(),
             width: Length::Fixed(4096.0),
-            height: Length::Fixed(4096.0), 
+            height: Length::Fixed(4096.0),
             min_scale: 0.1,
             max_scale: 10.0,
             scale_step: 0.2,
         }
     }
     //I don't know when this is called..'
-    pub fn update(&mut self, message: Message){
+    pub fn update(&mut self, message: Message) {
         match message {
-            Message::ToBrowser => {},
-            Message::ToImage => {},
-            Message::ToVideo => {},
-            Message::ToAudio => {},
+            Message::ToBrowser => {}
+            Message::ToImage => {}
+            Message::ToVideo => {}
+            Message::ToAudio => {}
             Message::Open(imagepath) => {
                 self.image_path = imagepath.clone();
                 self.handle_opt = Some(super::image::Handle::from_path(self.image_path.clone()));
                 self.image_path_loaded = self.image_path.clone();
             }
-            Message::NextFile => {},
-            Message::PreviousFile => {},
-            Message::ZoomPlus => {},
-            Message::ZoomMinus => {},
-            Message::ZoomFit => {},
-            Message::Seek => {},
+            Message::NextFile => {}
+            Message::PreviousFile => {}
+            Message::ZoomPlus => {}
+            Message::ZoomMinus => {}
+            Message::ZoomFit => {}
+            Message::Seek => {}
         }
     }
-
 }

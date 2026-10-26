@@ -1,12 +1,12 @@
 // Copyright Iced Staff
 // SPDX-License-Identifier: MIT
 // [MIT](http://opensource.org/licenses/MIT)
-// 
+//
 // Modifications:
 // Copyright 2024 Alexander Schwarzkopf
 
-
 //! Zoom and pan on an image.
+use cosmic::iced;
 use cosmic::iced_core::event::{self, Event};
 use cosmic::iced_core::image;
 use cosmic::iced_core::layout;
@@ -14,10 +14,8 @@ use cosmic::iced_core::mouse;
 use cosmic::iced_core::renderer;
 use cosmic::iced_core::widget::tree::{self, Tree};
 use cosmic::iced_core::{
-    Clipboard, Element, Layout, Length, Pixels, Point, Rectangle, Shell, Size,
-    Vector, Widget,
+    Clipboard, Element, Layout, Length, Pixels, Point, Rectangle, Shell, Size, Vector, Widget,
 };
-use cosmic::iced;
 
 use std::hash::Hash;
 
@@ -95,8 +93,7 @@ impl<Handle> Viewer<Handle> {
     }
 }
 
-impl<Message, Theme, Renderer, Handle> Widget<Message, Theme, Renderer>
-    for Viewer<Handle>
+impl<Message, Theme, Renderer, Handle> Widget<Message, Theme, Renderer> for Viewer<Handle>
 where
     Renderer: image::Renderer<Handle = Handle>,
     Handle: Clone + Hash,
@@ -124,12 +121,8 @@ where
     ) -> layout::Node {
         let image_size = renderer.measure_image(&self.handle);
         let image_size_f32 = Size::new(image_size.width as f32, image_size.height as f32);
-        let raw_size = limits.resolve(
-            self.width,
-            self.height,
-            image_size_f32,
-        );
-        let mut size= raw_size.clone();
+        let raw_size = limits.resolve(self.width, self.height, image_size_f32);
+        let mut size = raw_size.clone();
 
         let full_size = self.content_fit.fit(image_size_f32, raw_size);
 
@@ -177,8 +170,7 @@ where
                 };
 
                 match delta {
-                    mouse::ScrollDelta::Lines { y, .. }
-                    | mouse::ScrollDelta::Pixels { y, .. } => {
+                    mouse::ScrollDelta::Lines { y, .. } | mouse::ScrollDelta::Pixels { y, .. } => {
                         let state = tree.state.downcast_mut::<State>();
                         let previous_scale = state.scale;
 
@@ -192,20 +184,15 @@ where
                             })
                             .clamp(self.min_scale, self.max_scale);
 
-                            let image_size = image_size(
-                                renderer,
-                                &self.handle,
-                                state,
-                                bounds.size(),
-                            );
+                            let image_size =
+                                image_size(renderer, &self.handle, state, bounds.size());
 
                             let factor = state.scale / previous_scale - 1.0;
 
-                            let cursor_to_center =
-                                cursor_position - bounds.center();
+                            let cursor_to_center = cursor_position - bounds.center();
 
-                            let adjustment = cursor_to_center * factor
-                                + state.current_offset * factor;
+                            let adjustment =
+                                cursor_to_center * factor + state.current_offset * factor;
 
                             state.current_offset = Vector::new(
                                 if image_size.width > bounds.width {
@@ -252,34 +239,22 @@ where
                 let state = tree.state.downcast_mut::<State>();
 
                 if let Some(origin) = state.cursor_grabbed_at {
-                    let image_size = image_size(
-                        renderer,
-                        &self.handle,
-                        state,
-                        bounds.size(),
-                    );
+                    let image_size = image_size(renderer, &self.handle, state, bounds.size());
 
-                    let hidden_width = (image_size.width - bounds.width / 2.0)
-                        .max(0.0)
-                        .round();
+                    let hidden_width = (image_size.width - bounds.width / 2.0).max(0.0).round();
 
-                    let hidden_height = (image_size.height
-                        - bounds.height / 2.0)
-                        .max(0.0)
-                        .round();
+                    let hidden_height = (image_size.height - bounds.height / 2.0).max(0.0).round();
 
                     let delta = position - origin;
 
                     let x = if bounds.width < image_size.width {
-                        (state.starting_offset.x - delta.x)
-                            .clamp(-hidden_width, hidden_width)
+                        (state.starting_offset.x - delta.x).clamp(-hidden_width, hidden_width)
                     } else {
                         0.0
                     };
 
                     let y = if bounds.height < image_size.height {
-                        (state.starting_offset.y - delta.y)
-                            .clamp(-hidden_height, hidden_height)
+                        (state.starting_offset.y - delta.y).clamp(-hidden_height, hidden_height)
                     } else {
                         0.0
                     };
@@ -329,8 +304,7 @@ where
         let state = tree.state.downcast_ref::<State>();
         let bounds = layout.bounds();
 
-        let image_size =
-            image_size(renderer, &self.handle, state, bounds.size());
+        let image_size = image_size(renderer, &self.handle, state, bounds.size());
 
         let translation = {
             let image_top_left = Vector::new(
@@ -353,7 +327,7 @@ where
                         ..Rectangle::with_size(image_size)
                     },
                     cosmic::iced::Radians::from(0.0),
-                    1.0,        
+                    1.0,
                     [0.0; 4],
                 );
             });
@@ -390,11 +364,9 @@ impl State {
     /// Returns the current offset of the [`State`], given the bounds
     /// of the [`Viewer`] and its image.
     fn offset(&self, bounds: Rectangle, image_size: Size) -> Vector {
-        let hidden_width =
-            (image_size.width - bounds.width / 2.0).max(0.0).round();
+        let hidden_width = (image_size.width - bounds.width / 2.0).max(0.0).round();
 
-        let hidden_height =
-            (image_size.height - bounds.height / 2.0).max(0.0).round();
+        let hidden_height = (image_size.height - bounds.height / 2.0).max(0.0).round();
 
         Vector::new(
             self.current_offset.x.clamp(-hidden_width, hidden_width),

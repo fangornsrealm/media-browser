@@ -1,16 +1,16 @@
 // Copyright [iced-video-player]()
-// SPDX-License-Identifier: MIT 
+// SPDX-License-Identifier: MIT
 // [MIT](http://opensource.org/licenses/MIT)
-// 
+//
 // Modifications:
 // Copyright 2024 Alexander Schwarzkopf
 
 use super::Error;
 use gstreamer as gst;
 //use gst::glib::FlagsClass;
+use cosmic::iced::widget::image as img;
 use gstreamer_app as gst_app;
 use gstreamer_app::prelude::*;
-use cosmic::iced::widget::image as img;
 use std::num::NonZeroU8;
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};

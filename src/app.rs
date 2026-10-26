@@ -3074,8 +3074,7 @@ impl Application for App {
             Message::Open(_entity_opt, filepath) => {
                 if filepath.len() > 0 {}
                 if let Some(tab) = self.tab_model.data_mut::<Tab>(self.tab_model_id) {
-                    let v = tab.selected_file_paths();
-                    for path in v {
+                    if let Some(path) = tab.selected_file_paths().into_iter().next() {
                         return match self.open_path(path) {
                             Some(command) => command,
                             _ => Task::none(),
@@ -3580,8 +3579,7 @@ impl Application for App {
                     }
                     if let Some(tab) = self.tab_model.data_mut::<Tab>(self.tab_model_id) {
                         let _ret = tab.update(tab::Message::ItemRight, self.modifiers);
-                        let v = tab.selected_file_paths();
-                        for path in v {
+                        if let Some(path) = tab.selected_file_paths().into_iter().next() {
                             return match self.open_path(path) {
                                 Some(command) => command,
                                 _ => Task::none(),
@@ -3597,8 +3595,7 @@ impl Application for App {
                     }
                     if let Some(tab) = self.tab_model.data_mut::<Tab>(self.tab_model_id) {
                         let _ret = tab.update(tab::Message::ItemLeft, self.modifiers);
-                        let v = tab.selected_file_paths();
-                        for path in v {
+                        if let Some(path) = tab.selected_file_paths().into_iter().next() {
                             return match self.open_path(path) {
                                 Some(command) => command,
                                 _ => Task::none(),
@@ -3860,8 +3857,7 @@ impl Application for App {
                     }
                     if let Some(tab) = self.tab_model.data_mut::<Tab>(self.tab_model_id) {
                         let _ret = tab.update(tab::Message::ItemRight, self.modifiers);
-                        let v = tab.selected_file_paths();
-                        for path in v {
+                        if let Some(path) = tab.selected_file_paths().into_iter().next() {
                             return match self.open_path(path) {
                                 Some(command) => command,
                                 _ => Task::none(),
@@ -3877,8 +3873,7 @@ impl Application for App {
                     }
                     if let Some(tab) = self.tab_model.data_mut::<Tab>(self.tab_model_id) {
                         let _ret = tab.update(tab::Message::ItemLeft, self.modifiers);
-                        let v = tab.selected_file_paths();
-                        for path in v {
+                        if let Some(path) = tab.selected_file_paths().into_iter().next() {
                             return match self.open_path(path) {
                                 Some(command) => command,
                                 _ => Task::none(),
@@ -4121,7 +4116,7 @@ impl Application for App {
             }
             Message::NetworkDriveSubmit => {
                 //TODO: know which mounter to use for network drives
-                for (mounter_key, mounter) in MOUNTERS.iter() {
+                if let Some((mounter_key, mounter)) = MOUNTERS.iter().next() {
                     self.network_drive_connecting =
                         Some((*mounter_key, self.network_drive_input.clone()));
                     return mounter
@@ -5020,7 +5015,7 @@ impl Application for App {
 
                 //TODO: move to Task?
                 //if let tab::Message::ContextMenu(_point_opt) = tab_message {
-                    // Disable side context page
+                // Disable side context page
                 //    self.set_show_context(false);
                 //}
 
@@ -5274,8 +5269,7 @@ impl Application for App {
                     }
                     if let Some(tab) = self.tab_model.data_mut::<Tab>(self.tab_model_id) {
                         let _ret = tab.update(tab::Message::ItemRight, self.modifiers);
-                        let v = tab.selected_file_paths();
-                        for path in v {
+                        if let Some(path) = tab.selected_file_paths().into_iter().next() {
                             return match self.open_path(path) {
                                 Some(command) => command,
                                 _ => Task::none(),
@@ -5291,8 +5285,7 @@ impl Application for App {
                     }
                     if let Some(tab) = self.tab_model.data_mut::<Tab>(self.tab_model_id) {
                         let _ret = tab.update(tab::Message::ItemLeft, self.modifiers);
-                        let v = tab.selected_file_paths();
-                        for path in v {
+                        if let Some(path) = tab.selected_file_paths().into_iter().next() {
                             return match self.open_path(path) {
                                 Some(command) => command,
                                 _ => Task::none(),

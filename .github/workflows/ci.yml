@@ -21,13 +21,10 @@ jobs:
         with:
           components: rustfmt
 
-      - name: Check formatting (informational)
-        # The tree currently carries ~161 pre-existing formatting diffs
-        # spread across ~35 source files. Keep the step visible but
-        # non-blocking until a dedicated `cargo fmt` pass is landed;
-        # track in SUGGESTIONS.md, then flip `continue-on-error` off once
-        # the tree is clean.
-        continue-on-error: true
+      - name: Check formatting
+        # Hard gate: the tree is kept `cargo fmt`-clean; a dedicated
+        # `cargo fmt` pass was landed before enabling this (see
+        # SUGGESTIONS.md 6.4).
         run: cargo fmt --all --check
 
   clippy-test:
@@ -71,12 +68,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      - name: Clippy (informational)
-        # The tree currently carries 10 pre-existing clippy errors
-        # (mostly `never_loop` in app.rs/tab.rs). Keep the step visible but
-        # non-blocking until they are cleaned up; track in SUGGESTIONS.md
-        # (4.1 / 6.4), then flip `continue-on-error` off.
-        continue-on-error: true
+      - name: Clippy
+        # Hard gate: the 10 pre-existing clippy errors (8x `never_loop` in
+        # app.rs, 1 `arithmetic_side_effects` in parsers.rs, 1
+        # `derived_hash_with_manual_eq` in sql.rs) were fixed before
+        # enabling this (see SUGGESTIONS.md 6.4).
         run: cargo clippy --lib
 
       - name: Tests

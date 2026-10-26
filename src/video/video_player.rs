@@ -1,7 +1,7 @@
 // Copyright [iced-video-player]()
-// SPDX-License-Identifier: MIT 
+// SPDX-License-Identifier: MIT
 // [MIT](http://opensource.org/licenses/MIT)
-// 
+//
 // Modifications:
 // Copyright 2024 Alexander Schwarzkopf
 
@@ -300,7 +300,7 @@ where
                         inner.restart_stream = false;
                     }
                     let mut eos_pause = false;
-    
+
                     while let Some(msg) = inner
                         .bus
                         .pop_filtered(&[gst::MessageType::Error, gst::MessageType::Eos])
@@ -338,7 +338,7 @@ where
                             _ => {}
                         }
                     }
-    
+
                     // Don't run eos_pause if restart_stream is true; fixes "pausing" after restarting a stream
                     if restart_stream {
                         if let Err(err) = inner.restart_stream() {
@@ -348,13 +348,13 @@ where
                         inner.is_eos = true;
                         inner.set_paused(true);
                     }
-    
+
                     if inner.upload_frame.load(Ordering::SeqCst) {
                         if let Some(on_new_frame) = self.on_new_frame.clone() {
                             shell.publish(on_new_frame);
                         }
                     }
-    
+
                     if let Some(on_subtitle_text) = &self.on_subtitle_text {
                         if inner.upload_text.swap(false, Ordering::SeqCst) {
                             if let Ok(text) = inner.subtitle_text.try_lock() {
@@ -362,7 +362,7 @@ where
                             }
                         }
                     }
-    
+
                     shell.request_redraw(iced::window::RedrawRequest::NextFrame);
                 } else {
                     shell.request_redraw(iced::window::RedrawRequest::At(
@@ -373,7 +373,6 @@ where
             }
             _ => Status::Ignored,
         }
-    
     }
 
     fn mouse_interaction(
@@ -395,13 +394,13 @@ where
         } else {
             mouse::Interaction::default()
         }
-/*
-        if self.mouse_hidden {
-            mouse::Interaction::Idle
-        } else {
-            mouse::Interaction::default()
-        }
-*/
+        /*
+                if self.mouse_hidden {
+                    mouse::Interaction::Idle
+                } else {
+                    mouse::Interaction::default()
+                }
+        */
     }
 }
 

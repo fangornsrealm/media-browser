@@ -1,7 +1,7 @@
 // Copyright Iced staff [Iced](https://github.com/iced-rs/iced/tree/master)
 // SPDX-License-Identifier: MIT
 // [MIT](http://opensource.org/licenses/MIT)
-// 
+//
 // Modifications:
 // Copyright 2024 Alexander Schwarzkopf
 
@@ -13,9 +13,7 @@ use cosmic::iced_core::layout;
 use cosmic::iced_core::mouse;
 use cosmic::iced_core::renderer;
 use cosmic::iced_core::widget::Tree;
-use cosmic::iced_core::{
-    ContentFit, Element, Layout, Length, Rectangle, Size, Vector, Widget,
-};
+use cosmic::iced_core::{ContentFit, Element, Layout, Length, Rectangle, Size, Vector, Widget};
 use imagesize;
 
 use std::hash::Hash;
@@ -38,7 +36,7 @@ pub fn create_handle(pathstring: String) -> Handle {
                 path = crate::thumbnails::downscale_image(&path, 2000, dim.width, dim.height);
             }
         }
-        Err(why) => println!("Error getting size: {:?}", why)
+        Err(why) => println!("Error getting size: {:?}", why),
     }
     let hand = Handle::from_path(&path);
     hand
@@ -113,7 +111,6 @@ impl<'a, Handle> Image<'a, Handle> {
         self.filter_method = filter_method;
         self
     }
-
 }
 
 /// Computes the layout of an [`Image`].
@@ -197,16 +194,14 @@ pub fn draw<Renderer, Handle>(
         );
     };
 
-    if adjusted_fit.width > bounds.width || adjusted_fit.height > bounds.height
-    {
+    if adjusted_fit.width > bounds.width || adjusted_fit.height > bounds.height {
         renderer.with_layer(bounds, render);
     } else {
         render(renderer);
     }
 }
 
-impl<'a, Message, Theme, Renderer, Handle> Widget<Message, Theme, Renderer>
-    for Image<'a, Handle>
+impl<'a, Message, Theme, Renderer, Handle> Widget<Message, Theme, Renderer> for Image<'a, Handle>
 where
     Renderer: cosmic::iced_core::image::Renderer<Handle = Handle>,
     Handle: Clone + Hash,

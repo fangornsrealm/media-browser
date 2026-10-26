@@ -1,6 +1,6 @@
 // Copyright 2023 System76 <info@system76.com>
 // SPDX-License-Identifier: GPL-3.0-only
-// 
+//
 // Modifications:
 // Copyright 2024 Alexander Schwarzkopf
 
@@ -39,7 +39,7 @@ use std::{
 
 use crate::{
     app::{Action, ContextPage, Message as AppMessage, PreviewItem, PreviewKind},
-    config::{Config, MediaFavorite as Favorite, IconSizes, MediaTabConfig as TabConfig},
+    config::{Config, IconSizes, MediaFavorite as Favorite, MediaTabConfig as TabConfig},
     fl, home_dir,
     key_bind::key_binds,
     localize::LANGUAGE_SORTER,
@@ -518,11 +518,15 @@ impl App {
                     Err(error) => {
                         log::error!("Failed to open Database! {}", error);
                         panic!("Ending the program as a database is required!");
-                    },
+                    }
                 };
                 let sql_connection = std::sync::Arc::new(std::sync::Mutex::new(sql_conmnection));
 
-                match tokio::task::spawn_blocking(move || location2.scan(sql_connection, icon_sizes)).await {
+                match tokio::task::spawn_blocking(move || {
+                    location2.scan(sql_connection, icon_sizes)
+                })
+                .await
+                {
                     Ok((parent_item_opt, items)) => {
                         message::app(Message::TabRescan(location, parent_item_opt, items))
                     }
@@ -538,7 +542,7 @@ impl App {
 
     fn search_get(&self) -> Option<&str> {
         match &self.tab.location {
-            Location::Search(_, term, ..,_, _) => Some(term),
+            Location::Search(_, term, .., _, _) => Some(term),
             _ => None,
         }
     }
@@ -546,7 +550,7 @@ impl App {
     fn search_set(&mut self, term_opt: Option<String>) -> Task<Message> {
         let location_opt = match term_opt {
             Some(term) => match &self.tab.location {
-                Location::Path(path) | Location::Search(path, ..,_, _) => Some((
+                Location::Path(path) | Location::Search(path, .., _, _) => Some((
                     Location::Search(
                         path.to_path_buf(),
                         term,
@@ -558,7 +562,9 @@ impl App {
                 _ => None,
             },
             None => match &self.tab.location {
-                Location::Search(path, ..,_, _) => Some((Location::Path(path.to_path_buf()), false)),
+                Location::Search(path, .., _, _) => {
+                    Some((Location::Path(path.to_path_buf()), false))
+                }
                 _ => None,
             },
         };

@@ -1,6 +1,6 @@
 // Copyright 2023 System76 <info@system76.com>
 // SPDX-License-Identifier: GPL-3.0-only
-// 
+//
 // Modifications:
 // Copyright 2024 Alexander Schwarzkopf
 
@@ -81,7 +81,7 @@ pub fn key_binds(mode: &tab::Mode) -> HashMap<KeyBind, Action> {
         bind!([Ctrl], Key::Character("f".into()), SearchActivate);
     }
 
-    if matches!(mode, tab::Mode::Image ) {
+    if matches!(mode, tab::Mode::Image) {
         bind!([Ctrl], Key::Character("l".into()), EditLocation);
         bind!([], Key::Named(Named::ArrowRight), ItemRight);
         bind!([], Key::Named(Named::ArrowLeft), ItemLeft);
@@ -92,7 +92,7 @@ pub fn key_binds(mode: &tab::Mode) -> HashMap<KeyBind, Action> {
         bind!([], Key::Named(Named::Escape), OpenBrowser);
     }
 
-    if matches!(mode, tab::Mode::Video | tab::Mode::Audio ) {
+    if matches!(mode, tab::Mode::Video | tab::Mode::Audio) {
         bind!([], Key::Named(Named::ArrowRight), SeekForward);
         bind!([], Key::Named(Named::ArrowLeft), SeekBackward);
         bind!([], Key::Named(Named::Space), PlayPause);

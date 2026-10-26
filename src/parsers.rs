@@ -505,7 +505,7 @@ fn parse_exif(path: &PathBuf, metadata: &mut crate::sql::ImageMetadata) {
                         if gps_info.longitude_ref == 'W' {
                             metadata.gps_longitude *= -1.0;
                         }
-                        metadata.gps_altitude = (gps_info.altitude.0 / gps_info.altitude.0) as f32;
+                        metadata.gps_altitude = (gps_info.altitude.0 / gps_info.altitude.1) as f32;
                     }
                 }
                 let exif: Exif = iter.into();
@@ -2016,8 +2016,7 @@ pub fn scan_single_nfo_dir(
                     return ControlFlow::Break(());
                 }
                 let mime = crate::mime_icon::mime_for_path(path.clone());
-                let lowercase = osstr_to_string(path.clone().into_os_string())
-                    .to_ascii_lowercase();
+                let lowercase = osstr_to_string(path.clone().into_os_string()).to_ascii_lowercase();
                 let f = osstr_to_string(path.clone().into_os_string()).to_ascii_lowercase();
                 if f.contains("poster.") {
                     if poster > 0 {
@@ -2028,8 +2027,7 @@ pub fn scan_single_nfo_dir(
                     poster += 1;
                 } else if f.contains(".srt") {
                     meta_data.subtitles.push(f.clone());
-                } else if lowercase.ends_with("tvshow.nfo")
-                {
+                } else if lowercase.ends_with("tvshow.nfo") {
                     if let Some(basepath) = path.parent() {
                         data.tvshows_push(basepath.to_path_buf());
                     } else {
@@ -2041,8 +2039,7 @@ pub fn scan_single_nfo_dir(
                         justdirs.push(dp.to_path_buf());
                         return ControlFlow::Break(());
                     }
-                    if !lowercase.ends_with("movie.nfo")
-                    {
+                    if !lowercase.ends_with("movie.nfo") {
                         nfo_file = path.to_path_buf();
                     }
                     if let Some(basename) = path.file_stem() {
@@ -2389,7 +2386,6 @@ pub fn parse_tv_show_episodes(
             meta_data.thumb = thumb.clone();
         }
     }
-
 }
 
 /// create an item to put into our tabmodel from a video with NFO metadata
@@ -2429,7 +2425,13 @@ pub fn item_from_tvshow(
                 }
                 if refresh {
                     // file is newer
-                    parse_tv_show_episodes(nfo_file.clone(), metadata, data, sizes, sql_connection.clone());
+                    parse_tv_show_episodes(
+                        nfo_file.clone(),
+                        metadata,
+                        data,
+                        sizes,
+                        sql_connection.clone(),
+                    );
                     parse_nfo(&nfo_file, &mut video);
                     if video.date.num_days_from_ce() < 100 {
                         if let Ok(created) = statdata.created() {
@@ -2454,7 +2456,13 @@ pub fn item_from_tvshow(
                 }
             }
         } else {
-            parse_tv_show_episodes(nfo_file.clone(), metadata, data, sizes, sql_connection.clone());
+            parse_tv_show_episodes(
+                nfo_file.clone(),
+                metadata,
+                data,
+                sizes,
+                sql_connection.clone(),
+            );
             video.poster = metadata.poster.clone();
             parse_nfo(&nfo_file, &mut video);
             if video.date.num_days_from_ce() < 100 {
@@ -2609,7 +2617,7 @@ pub fn item_from_collection_episode(
 ) {
     let filepath = PathBuf::from(&metadata.path);
     let file_stem = match filepath.clone().file_stem() {
-        Some(stem ) => crate::parsers::osstr_to_string(stem.to_os_string()),
+        Some(stem) => crate::parsers::osstr_to_string(stem.to_os_string()),
         None => return,
     };
     let mut nfo_file = file_stem.clone();
@@ -2627,9 +2635,15 @@ pub fn item_from_collection_episode(
     };
     let name;
     if metadata.title.len() == 0 {
-        name = format!("S{:02}E{:02} {}", metadata.season, metadata.episode, metadata.name);
+        name = format!(
+            "S{:02}E{:02} {}",
+            metadata.season, metadata.episode, metadata.name
+        );
     } else {
-        name = format!("S{:02}E{:02} {}", metadata.season, metadata.episode, metadata.title);
+        name = format!(
+            "S{:02}E{:02} {}",
+            metadata.season, metadata.episode, metadata.title
+        );
     }
 
     let display_name = Item::display_name(&name);
