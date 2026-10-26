@@ -225,4 +225,3 @@ pub fn insert_media_tag(
         }
     }
 }
-
