@@ -1511,9 +1511,8 @@ pub fn insert_collection(
         Ok(mut statement) => match statement.query(params![]) {
             Ok(mut rows) => {
                 while let Ok(Some(row)) = rows.next() {
-                    let s_opt = row.get(0);
-                    if s_opt.is_ok() {
-                        collection_id = s_opt.unwrap();
+                    if let Ok(val) = row.get(0) {
+                        collection_id = val;
                     }
                 }
             }
@@ -1575,9 +1574,8 @@ pub fn delete_collection(
         )]) {
             Ok(mut rows) => {
                 while let Ok(Some(row)) = rows.next() {
-                    let s_opt = row.get(1);
-                    if s_opt.is_ok() {
-                        collection_id = s_opt.unwrap();
+                    if let Ok(val) = row.get(1) {
+                        collection_id = val;
                     }
                 }
             }
@@ -2028,9 +2026,8 @@ pub fn insert_video(
         Ok(mut statement) => match statement.query(params![]) {
             Ok(mut rows) => {
                 while let Ok(Some(row)) = rows.next() {
-                    let s_opt = row.get(0);
-                    if s_opt.is_ok() {
-                        video_id = s_opt.unwrap();
+                    if let Ok(val) = row.get(0) {
+                        video_id = val;
                     }
                 }
             }
@@ -2103,9 +2100,8 @@ pub fn insert_video(
             Ok(mut statement) => match statement.query(params![&metadata.director[i]]) {
                 Ok(mut rows) => {
                     while let Ok(Some(row)) = rows.next() {
-                        let s_opt = row.get(1);
-                        if s_opt.is_ok() {
-                            director_id = s_opt.unwrap();
+                        if let Ok(val) = row.get(1) {
+                            director_id = val;
                         }
                     }
                 }
@@ -2137,9 +2133,8 @@ pub fn insert_video(
                 Ok(mut statement) => match statement.query(params![]) {
                     Ok(mut rows) => {
                         while let Ok(Some(row)) = rows.next() {
-                            let s_opt = row.get(0);
-                            if s_opt.is_ok() {
-                                director_id = s_opt.unwrap();
+                            if let Ok(val) = row.get(0) {
+                                director_id = val;
                             }
                         }
                     }
@@ -2175,9 +2170,8 @@ pub fn insert_video(
             Ok(mut statement) => match statement.query(params![&metadata.actors[i]]) {
                 Ok(mut rows) => {
                     while let Ok(Some(row)) = rows.next() {
-                        let s_opt = row.get(1);
-                        if s_opt.is_ok() {
-                            actor_id = s_opt.unwrap();
+                        if let Ok(val) = row.get(1) {
+                            actor_id = val;
                         }
                     }
                 }
@@ -2211,9 +2205,8 @@ pub fn insert_video(
                 Ok(mut statement) => match statement.query(params![]) {
                     Ok(mut rows) => {
                         while let Ok(Some(row)) = rows.next() {
-                            let s_opt = row.get(0);
-                            if s_opt.is_ok() {
-                                actor_id = s_opt.unwrap();
+                            if let Ok(val) = row.get(0) {
+                                actor_id = val;
                             }
                         }
                     }
@@ -2334,9 +2327,8 @@ pub fn delete_tag(
         Ok(mut statement) => match statement.query(params![&tag]) {
             Ok(mut rows) => {
                 while let Ok(Some(row)) = rows.next() {
-                    let s_opt = row.get(1);
-                    if s_opt.is_ok() {
-                        tag_id = s_opt.unwrap();
+                    if let Ok(val) = row.get(1) {
+                        tag_id = val;
                     }
                 }
             }
@@ -2384,9 +2376,8 @@ pub fn insert_tag(
         Ok(mut statement) => match statement.query(params![&tag]) {
             Ok(mut rows) => {
                 while let Ok(Some(row)) = rows.next() {
-                    let s_opt = row.get(1);
-                    if s_opt.is_ok() {
-                        tag_id = s_opt.unwrap();
+                    if let Ok(val) = row.get(1) {
+                        tag_id = val;
                     }
                 }
             }
@@ -2412,9 +2403,8 @@ pub fn insert_tag(
             Ok(mut statement) => match statement.query(params![]) {
                 Ok(mut rows) => {
                     while let Ok(Some(row)) = rows.next() {
-                        let s_opt = row.get(0);
-                        if s_opt.is_ok() {
-                            tag_id = s_opt.unwrap();
+                        if let Ok(val) = row.get(0) {
+                            tag_id = val;
                         }
                     }
                 }
@@ -2496,9 +2486,8 @@ pub fn delete_video(
         Ok(mut statement) => match statement.query(params![&metadata.path]) {
             Ok(mut rows) => {
                 while let Ok(Some(row)) = rows.next() {
-                    let s_opt = row.get(1);
-                    if s_opt.is_ok() {
-                        video_id = s_opt.unwrap();
+                    if let Ok(val) = row.get(1) {
+                        video_id = val;
                     }
                 }
             }
@@ -3427,9 +3416,8 @@ pub fn insert_audio(
         Ok(mut statement) => match statement.query(params![&metadata.album]) {
             Ok(mut rows) => {
                 while let Ok(Some(row)) = rows.next() {
-                    let s_opt = row.get(0);
-                    if s_opt.is_ok() {
-                        album_id = s_opt.unwrap();
+                    if let Ok(val) = row.get(0) {
+                        album_id = val;
                     }
                 }
             }
@@ -3461,9 +3449,8 @@ pub fn insert_audio(
             Ok(mut statement) => match statement.query(params![]) {
                 Ok(mut rows) => {
                     while let Ok(Some(row)) = rows.next() {
-                        let s_opt = row.get(0);
-                        if s_opt.is_ok() {
-                            album_id = s_opt.unwrap();
+                        if let Ok(val) = row.get(0) {
+                            album_id = val;
                         }
                     }
                 }
@@ -3497,9 +3484,8 @@ pub fn insert_audio(
             Ok(mut statement) => match statement.query(params![&metadata.artist[i]]) {
                 Ok(mut rows) => {
                     while let Ok(Some(row)) = rows.next() {
-                        let s_opt = row.get(0);
-                        if s_opt.is_ok() {
-                            artist_id = s_opt.unwrap();
+                        if let Ok(val) = row.get(0) {
+                            artist_id = val;
                         }
                     }
                 }
@@ -3531,9 +3517,8 @@ pub fn insert_audio(
                 Ok(mut statement) => match statement.query(params![]) {
                     Ok(mut rows) => {
                         while let Ok(Some(row)) = rows.next() {
-                            let s_opt = row.get(0);
-                            if s_opt.is_ok() {
-                                artist_id = s_opt.unwrap();
+                            if let Ok(val) = row.get(0) {
+                                artist_id = val;
                             }
                         }
                     }
@@ -3569,9 +3554,8 @@ pub fn insert_audio(
             Ok(mut statement) => match statement.query(params![&metadata.albumartist[i]]) {
                 Ok(mut rows) => {
                     while let Ok(Some(row)) = rows.next() {
-                        let s_opt = row.get(0);
-                        if s_opt.is_ok() {
-                            albumartist_id = s_opt.unwrap();
+                        if let Ok(val) = row.get(0) {
+                            albumartist_id = val;
                         }
                     }
                 }
@@ -3603,9 +3587,8 @@ pub fn insert_audio(
                 Ok(mut statement) => match statement.query(params![]) {
                     Ok(mut rows) => {
                         while let Ok(Some(row)) = rows.next() {
-                            let s_opt = row.get(0);
-                            if s_opt.is_ok() {
-                                albumartist_id = s_opt.unwrap();
+                            if let Ok(val) = row.get(0) {
+                                albumartist_id = val;
                             }
                         }
                     }
@@ -3697,9 +3680,8 @@ pub fn delete_audio(
         Ok(mut statement) => match statement.query(params![&metadata.path]) {
             Ok(mut rows) => {
                 while let Ok(Some(row)) = rows.next() {
-                    let s_opt = row.get(1);
-                    if s_opt.is_ok() {
-                        audio_id = s_opt.unwrap();
+                    if let Ok(val) = row.get(1) {
+                        audio_id = val;
                     }
                 }
             }
@@ -4646,9 +4628,8 @@ pub fn delete_image(
         Ok(mut statement) => match statement.query(params![&metadata.path]) {
             Ok(mut rows) => {
                 while let Ok(Some(row)) = rows.next() {
-                    let s_opt = row.get(1);
-                    if s_opt.is_ok() {
-                        image_id = s_opt.unwrap();
+                    if let Ok(val) = row.get(1) {
+                        image_id = val;
                     }
                 }
             }
@@ -5552,9 +5533,8 @@ pub fn insert_file(
         Ok(mut statement) => match statement.query(params![]) {
             Ok(mut rows) => {
                 while let Ok(Some(row)) = rows.next() {
-                    let s_opt = row.get(0);
-                    if s_opt.is_ok() {
-                        metadata_id = s_opt.unwrap();
+                    if let Ok(val) = row.get(0) {
+                        metadata_id = val;
                     }
                 }
             }
@@ -5706,9 +5686,8 @@ pub fn insert_search(
         Ok(mut statement) => match statement.query(params![]) {
             Ok(mut rows) => {
                 while let Ok(Some(row)) = rows.next() {
-                    let s_opt = row.get(0);
-                    if s_opt.is_ok() {
-                        search_id = s_opt.unwrap();
+                    if let Ok(val) = row.get(0) {
+                        search_id = val;
                     }
                 }
             }
@@ -6102,6 +6081,30 @@ pub fn searches(
     searches
 }
 
+/// Resolve the user's home directory. Tries `dirs::home_dir()` first,
+/// then falls back to the `$HOME` environment variable. Returns `None`
+/// only if neither source is available (effectively impossible on a
+/// normal login session).
+pub fn home_dir() -> Option<PathBuf> {
+    if let Some(dir) = dirs::home_dir() {
+        return Some(dir);
+    }
+    std::env::var("HOME").ok().map(PathBuf::from)
+}
+
+/// Fallback used when `home_dir()` returns `None`: log the error and
+/// use the filesystem root so the app degrades gracefully instead of
+/// panicking.
+pub fn home_dir_or_root() -> PathBuf {
+    match home_dir() {
+        Some(dir) => dir,
+        None => {
+            log::error!("Unable to determine home directory; falling back to /");
+            PathBuf::from("/")
+        }
+    }
+}
+
 pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
     let sqlite_file;
     let connection;
@@ -6112,13 +6115,13 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
                 let ret = std::fs::create_dir_all(dir.clone());
                 if ret.is_err() {
                     log::warn!("Failed to create directory {}", dir.display());
-                    dir = dirs::home_dir().unwrap();
+                    dir = home_dir_or_root();
                 }
             }
             sqlite_file = dir.join("metadata.sqlite");
         }
         None => {
-            let dir = dirs::home_dir().unwrap();
+            let dir = home_dir_or_root();
             sqlite_file = dir.join("metadata.sqlite");
         }
     }

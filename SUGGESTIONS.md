@@ -108,8 +108,14 @@ The codebase threads `std::sync::Arc<std::sync::Mutex<rusqlite::Connection>>` ar
 
 ## 4. Correctness & Robustness
 
-### 4.1 [High] `unwrap()` / `expect()` volume
-The tree contains ~172 `unwrap()` and ~58 `expect()` calls. In a desktop app that touches the filesystem, D-Bus, and GStreamer, these are likely crash paths under normal variation (missing home dir, offline network drives, permission errors).
+### 4.1 [High] ⬜ IN PROGRESS — `unwrap()` / `expect()` volume
+The tree contained ~172 `unwrap()` and ~58 `expect()` calls (242 total). In a desktop app that touches the filesystem, D-Bus, and GStreamer, these are likely crash paths under normal variation (missing home dir, offline network drives, permission errors).
+
+**Status (partial — 242 → 208):**
+- Added a shared `crate::sql::home_dir()` / `home_dir_or_root()` helper (tries `dirs::home_dir()`, then `$HOME`, then degrades to `/` with a logged error instead of panicking). Replaced **all 13** `dirs::home_dir().unwrap()` sites across `sql.rs` (2), `app.rs` (5), `thumbnails.rs` (4), and `parsers.rs` (2) — a missing home dir is now a logged degradation, not a crash.
+- Converted **21** redundant `let s_opt = row.get(n); if s_opt.is_ok() { x = s_opt.unwrap(); }` sites in `sql.rs` to `if let Ok(val) = row.get(n) { x = val; }` (the `unwrap()` was already `is_ok()`-guarded, so behavior is unchanged but the panic call is gone).
+- Remaining in `sql.rs` are only the infallible `NaiveDate::from_ymd_opt(1970, 1, 1).unwrap()` defaults and the test-fixture `.expect()` calls (appropriate for tests).
+- Not yet done: the ~200 remaining sites in `tab.rs` (30), `gvfs.rs` (26), `app.rs` (25), `operation/` (18+6), `video/` (16+13+4), `audio/` (9+6), `parsers.rs` (15), `cmd.rs`, etc. — mostly GStreamer pipeline construction, channel receivers, and filesystem iteration, which need per-site `?`/error-type work (see 4.4) rather than a bulk pass. A `clippy::unwrap_used`/`expect_used` lint in `Cargo.toml` [lints] is the right next step to keep the count down.
 
 **Fix:** Prefer `?` with a proper error type (see 4.4), `log::warn!` + graceful degradation for non-fatal cases, and reserve `expect` only for true invariants. A CI lint (clippy `unwrap_used` as a warning→deny) will help keep the count down.
 

@@ -206,9 +206,10 @@ impl Action {
             Action::MoveToTrash => Message::MoveToTrash(entity_opt),
             Action::NewFolder => Message::NewItem(entity_opt, true),
             Action::Next => Message::Next(entity_opt),
-            Action::Open => {
-                Message::Open(entity_opt, dirs::home_dir().unwrap().display().to_string())
-            }
+            Action::Open => Message::Open(
+                entity_opt,
+                crate::sql::home_dir_or_root().display().to_string(),
+            ),
             Action::OpenInNewWindow => Message::OpenInNewWindow(entity_opt),
             Action::OpenItemLocation => Message::OpenItemLocation(entity_opt),
             Action::Paste => Message::Paste(entity_opt),
@@ -1475,12 +1476,12 @@ impl App {
                     let ret = std::fs::create_dir_all(metadata_path.clone());
                     if ret.is_err() {
                         log::warn!("Failed to create directory {}", metadata_path.display());
-                        metadata_path = dirs::home_dir().unwrap();
+                        metadata_path = crate::sql::home_dir_or_root();
                     }
                 }
             }
             None => {
-                metadata_path = dirs::home_dir().unwrap();
+                metadata_path = crate::sql::home_dir_or_root();
             }
         }
         let appearance_section = widget::settings::section().title(fl!("appearance")).add(
@@ -3911,12 +3912,12 @@ impl Application for App {
                                     "Failed to create directory {}",
                                     metadata_path.display()
                                 );
-                                metadata_path = dirs::home_dir().unwrap();
+                                metadata_path = crate::sql::home_dir_or_root();
                             }
                         }
                     }
                     None => {
-                        metadata_path = dirs::home_dir().unwrap();
+                        metadata_path = crate::sql::home_dir_or_root();
                     }
                 }
                 let paths = vec![metadata_path];

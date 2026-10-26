@@ -841,13 +841,13 @@ pub fn poster_path(path: &std::path::PathBuf) -> std::path::PathBuf {
                 let ret = std::fs::create_dir_all(dir.clone());
                 if ret.is_err() {
                     log::warn!("Failed to create directory {}", dir.display());
-                    dir = dirs::home_dir().unwrap();
+                    dir = crate::sql::home_dir_or_root();
                 }
             }
             posterpath = dir.join(filename);
         }
         None => {
-            let dir = dirs::home_dir().unwrap().join(".thumbs").join("large");
+            let dir = crate::sql::home_dir_or_root().join(".thumbs").join("large");
             posterpath = dir.join(filename);
         }
     }
@@ -869,13 +869,13 @@ pub fn album_path(path: &std::path::PathBuf) -> std::path::PathBuf {
                 let ret = std::fs::create_dir_all(dir.clone());
                 if ret.is_err() {
                     log::warn!("Failed to create directory {}", dir.display());
-                    dir = dirs::home_dir().unwrap();
+                    dir = crate::sql::home_dir_or_root();
                 }
             }
             posterpath = dir.join(filename);
         }
         None => {
-            let dir = dirs::home_dir().unwrap().join(".thumbs").join("large");
+            let dir = crate::sql::home_dir_or_root().join(".thumbs").join("large");
             posterpath = dir.join(filename);
         }
     }
