@@ -29,9 +29,9 @@ Problems:
 
 ## 2. Architecture & Modularity
 
-### 2.1 [High] ⬜ IN PROGRESS — Very large source files (`sql.rs` ✅ done)
+### 2.1 [High] ⬜ IN PROGRESS — Very large source files (`sql.rs` ✅ done, `app.rs` ✅ done)
 Current line counts:
-- `src/app.rs` — ~7203 lines
+- `src/app/mod.rs` — ~4433 lines (down from ~6731 after modularization) + 11 feature submodules (`types`, `views`, `search`, `nav`, `ops`, `tabs`, `dialogs`, `misc`, `scan`, `operations`, `trash`)
 - `src/sql.rs` — ~1253 lines (down from ~6589 after modularization)
 - `src/sql/search.rs` — ~1182 lines
 - `src/sql/audio.rs` — ~1196 lines
@@ -56,10 +56,12 @@ Current line counts:
 
 Each submodule reaches the parent's shared types (`Tag`, `Chapter`, `SearchData`), the `file` group (`insert_file`, `file`, `file_by_id`), the `tags` group (`insert_tag`), the `video` group (`video_by_id`), and `escape_like_term` via `super::`. What remains in `sql.rs` is a thin core: the core types (`SearchType`, `SearchData`, `Tag`, `Chapter`), `escape_like_term`, `fill_chapters`, the `home_dir` helpers, and `connect()`. All 32 tests pass, clippy is clean (0 errors, 0 unused imports), and `cargo fmt --check` is green.
 
+**Status (app.rs modularization complete):** Split the ~6731-line `src/app.rs` into `src/app/` with a `mod.rs` parent (state, `update` dispatcher, UI construction) and eleven sibling feature modules (`types.rs`, `views.rs`, `search.rs`, `nav.rs`, `ops.rs`, `tabs.rs`, `dialogs.rs`, `misc.rs`, `scan.rs`, `operations.rs`, `trash.rs`). Each sibling defines `impl App` methods dispatched from `App::update` via single forwarding lines; all sibling methods return `Task<Message>` for uniform match-arm typing. The `config_set!` macro was hoisted to module scope (taking an explicit `$this` receiver to avoid the `self`-in-macro scoping bug). All 32 tests pass, clippy has 0 errors, and `cargo fmt --check` is green.
+
 These files mix concerns (state, message handling, UI construction, persistence, parsing). This slows review, increases merge conflicts, and makes it hard to test a single behavior.
 
 **Suggested split (remaining):**
-- `app.rs` → split message handlers per feature: `app/mod.rs`, `app/scan.rs`, `app/operations.rs`, `app/nav.rs`, `app/search.rs`, `app/trash.rs`.
+- ✅ `app.rs` → split message handlers per feature: `app/mod.rs`, `app/scan.rs`, `app/operations.rs`, `app/nav.rs`, `app/search.rs`, `app/trash.rs`, `app/types.rs`, `app/views.rs`, `app/ops.rs`, `app/tabs.rs`, `app/dialogs.rs`, `app/misc.rs`.
 - `tab.rs` → `tab/` with `location.rs`, `items.rs`, `selection.rs`, `sort.rs`.
 - `parsers.rs` → per-format parsers (`parsers/nfo.rs`, `parsers/exif.rs`, `parsers/id3.rs`) behind a common trait.
 
@@ -273,7 +275,7 @@ These align with the open items already tracked in `Todo.md` and the README; fla
 7. ⬜ Centralize blocking work on `spawn_blocking` with cancellation (`3.3`) — spawn sites audited (all intentional fire-and-forget workers); cancellation still missing.
 
 **Phase 3 — Architecture & quality**
-8. ⬜ (partial) Split `sql.rs` and `app.rs` into modules — ✅ `sql.rs` fully modularized into eight submodules (`search`, `file`, `tags`, `video`, `audio`, `image`, `collection`, `search_history`) via the re-export pattern, no call-site changes, down to a ~1253-line core; ⬜ `app.rs`/`tab.rs`/`parsers.rs` still monolithic; ⬜ unify the three search implementations (`2.1`, `2.2`).
+8. ⬜ (partial) Split `sql.rs` and `app.rs` into modules — ✅ `sql.rs` fully modularized into eight submodules (`search`, `file`, `tags`, `video`, `audio`, `image`, `collection`, `search_history`) via the re-export pattern, no call-site changes, down to a ~1253-line core; ✅ `app.rs` split into `src/app/` with 11 feature submodules, down to a ~4433-line `mod.rs` core; ⬜ `tab.rs`/`parsers.rs` still monolithic; ⬜ unify the three search implementations (`2.1`, `2.2`).
 9. Refactor `SearchData` to a `HashSet<SearchType>` with derived traits (`2.3`); clean up the `Action`/`Message` mapping (`2.4`).
 10. Standardize error handling with `anyhow`/`thiserror` and consolidate logging (`4.4`, `4.5`).
 

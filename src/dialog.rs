@@ -14,11 +14,7 @@ use cosmic::{
         stream, window, Alignment, Event, Length, Size, Subscription,
     },
     theme,
-    widget::{
-        self,
-        menu::{Action as MenuAction, KeyBind},
-        segmented_button,
-    },
+    widget::{self, menu::KeyBind, segmented_button},
     Application, ApplicationExt, Element,
 };
 use notify_debouncer_full::{
@@ -1152,7 +1148,7 @@ impl Application for App {
             Message::Key(modifiers, key) => {
                 for (key_bind, action) in self.key_binds.iter() {
                     if key_bind.matches(modifiers, &key) {
-                        return self.update(Message::from(action.message()));
+                        return self.update(Message::from(action.message(None)));
                     }
                 }
             }
@@ -1401,7 +1397,7 @@ impl Application for App {
                 for tab_command in tab_commands {
                     match tab_command {
                         tab::Command::Action(action) => {
-                            commands.push(self.update(Message::from(action.message())));
+                            commands.push(self.update(Message::from(action.message(None))));
                         }
                         tab::Command::ChangeLocation(_tab_title, _tab_path, _selection_paths) => {
                             commands.push(Task::batch([self.update_watcher(), self.rescan_tab()]));

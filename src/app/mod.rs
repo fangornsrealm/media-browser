@@ -21,21 +21,19 @@ use cosmic::{
     app::{self, context_drawer, message, Core, Task},
     cosmic_config, cosmic_theme, executor, font,
     iced::{
-        clipboard::dnd::DndAction,
         event,
         futures::{self, SinkExt},
-        keyboard::{Event as KeyEvent, Key, Modifiers},
+        keyboard::{Event as KeyEvent, Modifiers},
         stream,
         window::{self, Event as WindowEvent, Id as WindowId},
         Alignment, Event, Length, Rectangle, Size, Subscription,
     },
-    iced_runtime::clipboard,
     style, theme,
     widget::{
         self,
         dnd_destination::DragId,
         horizontal_space,
-        menu::{action::MenuAction, key_bind::KeyBind},
+        menu::key_bind::KeyBind,
         segmented_button::{self, Entity},
         vertical_space, Container, Slider,
     },
@@ -44,14 +42,13 @@ use cosmic::{
 use notify_debouncer_full::{
     new_debouncer,
     notify::{self, RecommendedWatcher, Watcher},
-    DebouncedEvent, Debouncer, FileIdMap,
+    Debouncer, FileIdMap,
 };
 use slotmap::Key as SlotMapKey;
 use std::{
     any::TypeId,
     collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
-    env, fmt, fs,
-    num::NonZeroU16,
+    env,
     path::PathBuf,
     process,
     sync::{Arc, Mutex},
@@ -68,496 +65,62 @@ pub use crate::audio::audio_player::AudioPlayer;
 pub use crate::video::video::Video;
 pub use crate::video::video_player::VideoPlayer;
 pub use gstreamer as gst;
-use gstreamer::prelude::*;
 pub use gstreamer_app as gst_app;
 pub use gstreamer_pbutils as gst_pbutils;
 
-use tokio::sync::mpsc;
-use trash::TrashItem;
 #[cfg(feature = "wayland")]
 use wayland_client::{protocol::wl_output::WlOutput, Proxy};
 
 use crate::{
-    clipboard::{ClipboardCopy, ClipboardKind, ClipboardPaste},
-    config::{AppTheme, Config, IconSizes, MediaFavorite as Favorite, MediaTabConfig as TabConfig},
+    config::{AppTheme, Config, IconSizes, MediaFavorite as Favorite},
     fl, home_dir,
     key_bind::key_binds,
     localize::LANGUAGE_SORTER,
-    menu, mime_app, mime_icon,
-    mounter::{MounterAuth, MounterItem, MounterItems, MounterKey, MounterMessage, MOUNTERS},
+    menu,
+    mounter::{MounterAuth, MounterItems, MounterKey, MounterMessage, MOUNTERS},
     operation::{Controller, Operation, OperationSelection, ReplaceResult},
-    spawn_detached::spawn_detached,
-    tab::{self, HeadingOptions, ItemMetadata, Location, Tab, HOVER_DURATION},
+    tab::{self, ItemMetadata, Location, Tab},
 };
 
-#[derive(Clone, Debug, PartialEq)]
-pub enum Mode {
-    App,
-    Desktop,
-    Browser,
-    Image,
-    Video,
-    Audio,
-}
-
-#[derive(Clone, Debug)]
-pub struct Flags {
-    pub config_handler: Option<cosmic_config::Config>,
-    pub config: Config,
-    pub mode: Mode,
-    pub locations: Vec<Location>,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Action {
-    OpenBrowser,
-    OpenImage,
-    OpenVideo,
-    OpenAudio,
-    About,
-    AddToSidebar,
-    AddTagToSidebar,
-    AudioMuteToggle,
-    Copy,
-    Cut,
-    CosmicSettingsAppearance,
-    CosmicSettingsDisplays,
-    CosmicSettingsWallpaper,
-    EditHistory,
-    EditLocation,
-    EmptyTrash,
-    Fullscreen,
-    HistoryNext,
-    HistoryPrevious,
-    ItemDown,
-    ItemLeft,
-    ItemRight,
-    ItemUp,
-    LocationUp,
-    MoveToTrash,
-    NewFolder,
-    Next,
-    Open,
-    OpenInNewWindow,
-    OpenItemLocation,
-    Paste,
-    PlayPause,
-    PlayFromBeginning,
-    //PlaySkip,
-    Preview,
-    Previous,
-    RecursiveScanDirectories,
-    Rename,
-    RestoreFromTrash,
-    SearchActivate,
-    SearchDB,
-    SeekBackward,
-    SeekForward,
-    SelectAll,
-    SetSort(HeadingOptions, bool),
-    Settings,
-    //SubtitleToggle,
-    TabClose,
-    TabNew,
-    TabNext,
-    TabPrev,
-    TabViewGrid,
-    TabViewList,
-    ToggleFoldersFirst,
-    ToggleShowHidden,
-    ToggleSort(HeadingOptions),
-    WindowClose,
-    WindowNew,
-    ZoomDefault,
-    ZoomIn,
-    ZoomOut,
-    Recents,
-}
-
-impl Action {
-    fn message(&self, entity_opt: Option<Entity>) -> Message {
-        match self {
-            Action::About => Message::ToggleContextPage(ContextPage::About),
-            Action::AddToSidebar => Message::AddToSidebar(entity_opt),
-            Action::AddTagToSidebar => Message::AddTagToSidebar(entity_opt),
-            Action::AudioMuteToggle => Message::AudioMuteToggle,
-            Action::OpenBrowser => Message::Browser,
-            Action::OpenImage => Message::Image(crate::image::image_view::Message::ToImage),
-            Action::OpenVideo => Message::Video(crate::video::video_view::Message::ToVideo),
-            Action::OpenAudio => Message::Audio(crate::audio::audio_view::Message::ToAudio),
-            Action::Copy => Message::Copy(entity_opt),
-            Action::Cut => Message::Cut(entity_opt),
-            Action::CosmicSettingsAppearance => Message::CosmicSettings("appearance"),
-            Action::CosmicSettingsDisplays => Message::CosmicSettings("displays"),
-            Action::CosmicSettingsWallpaper => Message::CosmicSettings("wallpaper"),
-            Action::EditHistory => Message::ToggleContextPage(ContextPage::EditHistory),
-            Action::EditLocation => {
-                Message::TabMessage(entity_opt, tab::Message::EditLocationEnable)
+// Helper for updating config values efficiently.
+// Defined at module scope (before child module declarations) so all sibling
+// modules can invoke it. Originally defined inline inside `App::update`.
+// Takes the `App` receiver as the first argument so that `self` resolves
+// correctly regardless of which child module calls it.
+macro_rules! config_set {
+    ($this:expr, $name: ident, $value: expr) => {
+        match &$this.config_handler {
+            Some(config_handler) => {
+                match paste::paste! { $this.config.[<set_ $name>](config_handler, $value) } {
+                    Ok(_) => {}
+                    Err(err) => {
+                        log::warn!("failed to save config {:?}: {}", stringify!($name), err);
+                    }
+                }
             }
-            Action::EmptyTrash => Message::TabMessage(None, tab::Message::EmptyTrash),
-            Action::Fullscreen => Message::Fullscreen,
-            Action::HistoryNext => Message::TabMessage(entity_opt, tab::Message::GoNext),
-            Action::HistoryPrevious => Message::TabMessage(entity_opt, tab::Message::GoPrevious),
-            Action::ItemDown => Message::TabMessage(entity_opt, tab::Message::ItemDown),
-            Action::ItemLeft => Message::TabMessage(entity_opt, tab::Message::ItemLeft),
-            Action::ItemRight => Message::TabMessage(entity_opt, tab::Message::ItemRight),
-            Action::ItemUp => Message::TabMessage(entity_opt, tab::Message::ItemUp),
-            Action::LocationUp => Message::TabMessage(entity_opt, tab::Message::LocationUp),
-            Action::MoveToTrash => Message::MoveToTrash(entity_opt),
-            Action::NewFolder => Message::NewItem(entity_opt, true),
-            Action::Next => Message::Next(entity_opt),
-            Action::Open => Message::Open(
-                entity_opt,
-                crate::sql::home_dir_or_root().display().to_string(),
-            ),
-            Action::OpenInNewWindow => Message::OpenInNewWindow(entity_opt),
-            Action::OpenItemLocation => Message::OpenItemLocation(entity_opt),
-            Action::Paste => Message::Paste(entity_opt),
-            Action::PlayFromBeginning => Message::Seek(0.0),
-            Action::PlayPause => Message::PlayPause,
-            Action::Preview => Message::Preview(entity_opt),
-            Action::Previous => Message::Previous(entity_opt),
-            Action::RecursiveScanDirectories => Message::RecursiveScanDirectories(entity_opt),
-            Action::Rename => Message::Rename(entity_opt),
-            Action::RestoreFromTrash => Message::RestoreFromTrash(entity_opt),
-            Action::SearchActivate => Message::SearchActivate,
-            Action::SearchDB => Message::SearchStart,
-            Action::SelectAll => Message::TabMessage(entity_opt, tab::Message::SelectAll),
-            Action::SetSort(sort, dir) => {
-                Message::TabMessage(entity_opt, tab::Message::SetSort(*sort, *dir))
+            None => {
+                $this.config.$name = $value;
+                log::warn!(
+                    "failed to save config {:?}: no config handler",
+                    stringify!($name)
+                );
             }
-            Action::Settings => Message::ToggleContextPage(ContextPage::Settings),
-            Action::SeekBackward => Message::SeekBackward,
-            Action::SeekForward => Message::SeekForward,
-            //Action::SubtitleToggle => Message::SubtitleToggle,
-            Action::TabClose => Message::TabClose(entity_opt),
-            Action::TabNew => Message::TabNew,
-            Action::TabNext => Message::TabNext,
-            Action::TabPrev => Message::TabPrev,
-            Action::TabViewGrid => Message::TabView(entity_opt, tab::View::Grid),
-            Action::TabViewList => Message::TabView(entity_opt, tab::View::List),
-            Action::ToggleFoldersFirst => Message::ToggleFoldersFirst,
-            Action::ToggleShowHidden => {
-                Message::TabMessage(entity_opt, tab::Message::ToggleShowHidden)
-            }
-            Action::ToggleSort(sort) => {
-                Message::TabMessage(entity_opt, tab::Message::ToggleSort(*sort))
-            }
-            Action::WindowClose => Message::WindowClose,
-            Action::WindowNew => Message::WindowNew,
-            Action::ZoomDefault => Message::ZoomDefault(entity_opt),
-            Action::ZoomIn => Message::ZoomIn(entity_opt),
-            Action::ZoomOut => Message::ZoomOut(entity_opt),
-            Action::Recents => Message::Recents,
         }
-    }
+    };
 }
 
-impl MenuAction for Action {
-    type Message = Message;
-
-    fn message(&self) -> Message {
-        self.message(None)
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct PreviewItem(pub tab::Item);
-
-impl PartialEq for PreviewItem {
-    fn eq(&self, other: &Self) -> bool {
-        self.0.location_opt == other.0.location_opt
-    }
-}
-
-impl Eq for PreviewItem {}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum PreviewKind {
-    Custom(PreviewItem),
-    Location(Location),
-    Selected,
-}
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum NavMenuAction {
-    Open(segmented_button::Entity),
-    OpenTag(segmented_button::Entity),
-    Preview(segmented_button::Entity),
-    RecursiveScanDirectories(segmented_button::Entity),
-    RemoveFromSidebar(segmented_button::Entity),
-    RemoveTagFromSidebar(segmented_button::Entity),
-    EmptyTrash,
-}
-
-impl MenuAction for NavMenuAction {
-    type Message = cosmic::app::Message<Message>;
-
-    fn message(&self) -> Self::Message {
-        cosmic::app::Message::App(Message::NavMenuAction(*self))
-    }
-}
-
-/// Messages that are used specifically by our [`App`].
-#[derive(Clone, Debug)]
-pub enum Message {
-    Browser,
-    Image(crate::image::image_view::Message),
-    Video(crate::video::video_view::Message),
-    Audio(crate::audio::audio_view::Message),
-    AddToSidebar(Option<Entity>),
-    AddTagToContents(crate::sql::Tag, ClipboardPaste),
-    AddTagToSidebar(Option<Entity>),
-    AppTheme(AppTheme),
-    AudioMessage(crate::audio::audio_view::Message),
-    AudioMuteToggle,
-    AudioCode(usize),
-    AudioVolume(f64),
-    //SubtitleToggle,
-    TextCode(usize),
-    MissingPlugin(gstreamer::Message),
-    Fullscreen,
-    Seek(f64),
-    SeekRelative(f64),
-    EndOfStream,
-    NewFrame,
-    PlayPause,
-    Chapter(usize),
-    CloseToast(widget::ToastId),
-    Config(Config),
-    Copy(Option<Entity>),
-    CosmicSettings(&'static str),
-    Cut(Option<Entity>),
-    DialogCancel,
-    DialogComplete,
-    DialogPush(DialogPage),
-    DialogUpdate(DialogPage),
-    DialogUpdateComplete(DialogPage),
-    ImageMessage(crate::image::image_view::Message),
-    Key(Modifiers, Key),
-    LaunchUrl(String),
-    LaunchSearch(crate::sql::SearchType, String),
-    MaybeExit,
-    MetadataDelete,
-    Modifiers(Modifiers),
-    MoveToTrash(Option<Entity>),
-    MounterItems(MounterKey, MounterItems),
-    MountResult(MounterKey, MounterItem, Result<bool, String>),
-    MouseScroll(cosmic::iced_core::mouse::ScrollDelta),
-    NavBarClose(Entity),
-    NavBarContext(Entity),
-    NavMenuAction(NavMenuAction),
-    NetworkAuth(MounterKey, String, MounterAuth, mpsc::Sender<MounterAuth>),
-    NetworkDriveInput(String),
-    NetworkDriveSubmit,
-    NetworkResult(MounterKey, String, Result<bool, String>),
-    NewItem(Option<Entity>, bool),
-    Next(Option<Entity>),
-    Previous(Option<Entity>),
-    #[cfg(feature = "notify")]
-    Notification(Arc<Mutex<notify_rust::NotificationHandle>>),
-    NotifyEvents(Vec<DebouncedEvent>),
-    NotifyWatcher(WatcherWrapper),
-    Open(Option<Entity>, String),
-    OpenInNewWindow(Option<Entity>),
-    OpenItemLocation(Option<Entity>),
-    Paste(Option<Entity>),
-    PasteContents(PathBuf, ClipboardPaste),
-    PendingCancel(u64),
-    PendingCancelAll,
-    PendingComplete(u64, OperationSelection),
-    PendingDismiss,
-    PendingError(u64, String),
-    PendingPause(u64, bool),
-    PendingPauseAll(bool),
-    Preview(Option<Entity>),
-    RecursiveScanDirectories(Option<Entity>),
-    RescanTrash,
-    Rename(Option<Entity>),
-    RenameWithPattern(Option<Entity>, String, i32, i32),
-    ReplaceResult(ReplaceResult),
-    RestoreFromTrash(Option<Entity>),
-    SearchActivate,
-    SearchClear,
-    SearchInput(String),
-    SearchStart,
-    SearchPreviousPick(usize),
-    SearchPreviousSelect,
-    SearchPreviousDelete,
-    SearchImages(bool),
-    SearchVideos(bool),
-    SearchAudios(bool),
-    SearchSearchString(String),
-    SearchSearchStringSubmit,
-    SearchSearchFromString(String),
-    SearchSearchFromStringSubmit,
-    SearchSearchToString(String),
-    SearchSearchToStringSubmit,
-    SearchSearchFromValue(String),
-    SearchSearchFromValueSubmit,
-    SearchSearchToValue(String),
-    SearchSearchToValueSubmit,
-    SearchFilepath(bool),
-    SearchTitle(bool),
-    SearchTag(bool),
-    SearchDescription(bool),
-    SearchActor(bool),
-    SearchDirector(bool),
-    SearchArtist(bool),
-    SearchAlbumartist(bool),
-    SearchAlbum(bool),
-    SearchComposer(bool),
-    SearchGenre(bool),
-    SearchDuration(bool),
-    SearchCreationDate(bool),
-    SearchModificationDate(bool),
-    SearchReleaseDate(bool),
-    SearchLenseModel(bool),
-    SearchFocalLength(bool),
-    SearchExposureTime(bool),
-    SearchFNumber(bool),
-    SearchGpsLatitude(bool),
-    SearchGpsLongitude(bool),
-    SearchGpsAltitude(bool),
-    SearchCommit,
-    SeekBackward,
-    SeekForward,
-    SetShowDetails(bool),
-    SkipToPosition(f64),
-    SystemThemeModeChange(cosmic_theme::ThemeMode),
-    Size(Size),
-    TabActivate(Entity),
-    TabNext,
-    TabPrev,
-    TabClose(Option<Entity>),
-    TabConfig(TabConfig),
-    TabMessage(Option<Entity>, tab::Message),
-    TabNew,
-    TabRescan(
-        Entity,
-        Location,
-        Option<tab::Item>,
-        Vec<tab::Item>,
-        Option<Vec<PathBuf>>,
-    ),
-    TabView(Option<Entity>, tab::View),
-    ToggleContextPage(ContextPage),
-    ToggleFoldersFirst,
-    Undo(usize),
-    UndoTrash(widget::ToastId, Arc<[PathBuf]>),
-    UndoTrashStart(Vec<TrashItem>),
-    VideoMessage(crate::video::video_view::Message),
-    WindowClose,
-    WindowNew,
-    ZoomDefault(Option<Entity>),
-    ZoomIn(Option<Entity>),
-    ZoomOut(Option<Entity>),
-    DndHoverLocTimeout(Location),
-    DndHoverTabTimeout(Entity),
-    DndEnterNav(Entity),
-    DndExitNav,
-    DndEnterTab(Entity),
-    DndExitTab,
-    DndDropTab(Entity, Option<ClipboardPaste>, DndAction),
-    DndDropNav(Entity, Option<ClipboardPaste>, DndAction),
-    Recents,
-    #[cfg(feature = "wayland")]
-    OutputEvent(OutputEvent, WlOutput),
-    Cosmic(app::cosmic::Message),
-    None,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ContextPage {
-    About,
-    EditHistory,
-    NetworkDrive,
-    Preview(Option<Entity>, PreviewKind),
-    Settings,
-    Search,
-}
-
-#[derive(Clone, Debug)]
-pub enum DialogPage {
-    EmptyTrash,
-    FailedOperation(u64),
-    MountError {
-        mounter_key: MounterKey,
-        item: MounterItem,
-        error: String,
-    },
-    NetworkAuth {
-        mounter_key: MounterKey,
-        uri: String,
-        auth: MounterAuth,
-        auth_tx: mpsc::Sender<MounterAuth>,
-    },
-    NetworkError {
-        mounter_key: MounterKey,
-        uri: String,
-        error: String,
-    },
-    NewItem {
-        parent: PathBuf,
-        name: String,
-        dir: bool,
-    },
-    NewTag {
-        tag: String,
-    },
-    OpenWith {
-        path: PathBuf,
-        mime: mime_guess::Mime,
-        apps: Vec<mime_app::MimeApp>,
-        selected: usize,
-        store_opt: Option<mime_app::MimeApp>,
-    },
-    RenameItem {
-        from: PathBuf,
-        parent: PathBuf,
-        name: String,
-        dir: bool,
-    },
-    Replace {
-        from: tab::Item,
-        to: tab::Item,
-        multiple: bool,
-        apply_to_all: bool,
-        tx: mpsc::Sender<ReplaceResult>,
-    },
-}
-
-pub struct FavoriteIndex(usize);
-
-pub struct MounterData(MounterKey, MounterItem);
-
-#[derive(Clone, Debug)]
-pub enum WindowKind {
-    Desktop(Entity),
-    Preview(Option<Entity>, PreviewKind),
-}
-
-pub struct WatcherWrapper {
-    watcher_opt: Option<Debouncer<RecommendedWatcher, FileIdMap>>,
-}
-
-impl Clone for WatcherWrapper {
-    fn clone(&self) -> Self {
-        Self { watcher_opt: None }
-    }
-}
-
-impl fmt::Debug for WatcherWrapper {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("WatcherWrapper").finish()
-    }
-}
-
-impl PartialEq for WatcherWrapper {
-    fn eq(&self, _other: &Self) -> bool {
-        false
-    }
-}
+mod dialogs;
+mod misc;
+mod nav;
+mod operations;
+mod ops;
+mod scan;
+mod search;
+mod tabs;
+mod trash;
+mod types;
+mod views;
+pub use types::*;
 
 /// The [`App`] stores application-specific state.
 pub struct App {
@@ -1061,7 +624,7 @@ impl App {
         widget::column::with_children(vec![
             widget::svg(widget::svg::Handle::from_memory(
                 &include_bytes!(
-                    "../res/icons/hicolor/128x128/apps/eu.fangornsrealm.MediaBrowser.svg"
+                    "../../res/icons/hicolor/128x128/apps/eu.fangornsrealm.MediaBrowser.svg"
                 )[..],
             ))
             .into(),
@@ -3044,893 +2607,49 @@ impl Application for App {
 
     /// Handle application events here.
     fn update(&mut self, message: Self::Message) -> Task<Self::Message> {
-        // Helper for updating config values efficiently
-        macro_rules! config_set {
-            ($name: ident, $value: expr) => {
-                match &self.config_handler {
-                    Some(config_handler) => {
-                        match paste::paste! { self.config.[<set_ $name>](config_handler, $value) } {
-                            Ok(_) => {}
-                            Err(err) => {
-                                log::warn!(
-                                    "failed to save config {:?}: {}",
-                                    stringify!($name),
-                                    err
-                                );
-                            }
-                        }
-                    }
-                    None => {
-                        self.config.$name = $value;
-                        log::warn!(
-                            "failed to save config {:?}: no config handler",
-                            stringify!($name)
-                        );
-                    }
-                }
-            };
-        }
-
         match message {
-            Message::Open(_entity_opt, filepath) => {
-                if filepath.len() > 0 {}
-                if let Some(tab) = self.tab_model.data_mut::<Tab>(self.tab_model_id) {
-                    if let Some(path) = tab.selected_file_paths().into_iter().next() {
-                        return match self.open_path(path) {
-                            Some(command) => command,
-                            _ => Task::none(),
-                        };
-                    }
-                }
-            }
-            Message::Browser => {
-                if self.active_view == Mode::Audio {
-                    if let Some(audio) = self.audio_view.audio_opt.as_mut() {
-                        if !audio.paused() {
-                            audio.set_paused(true);
-                        }
-                    }
-                }
-                if self.active_view == Mode::Video {
-                    if let Some(video) = self.video_view.video_opt.as_mut() {
-                        if !video.paused() {
-                            video.set_paused(true);
-                        }
-                    }
-                }
-
-                self.active_view = Mode::Browser;
-            }
-            Message::Image(msg) => {
-                match msg {
-                    crate::image::image_view::Message::ToBrowser => {
-                        self.active_view = Mode::Browser;
-                        self.view();
-                    }
-                    crate::image::image_view::Message::ToVideo => {
-                        self.active_view = Mode::Video;
-                        self.view();
-                    }
-                    crate::image::image_view::Message::ToAudio => {
-                        self.active_view = Mode::Audio;
-                        self.view();
-                    }
-                    //and here we decide that if it has more messages, we will let it handle them itself.
-                    _ => {
-                        //and give it back it's own message
-                        self.image_view.update(msg);
-                    }
-                };
-            }
-            Message::Video(msg) => {
-                match msg {
-                    crate::video::video_view::Message::ToBrowser => {
-                        self.active_view = Mode::Browser;
-                        self.view();
-                    }
-                    crate::video::video_view::Message::ToImage => {
-                        self.active_view = Mode::Image;
-                        self.view();
-                    }
-                    crate::video::video_view::Message::ToAudio => {
-                        self.active_view = Mode::Audio;
-                        self.view();
-                    }
-                    //and here we decide that if it has more messages, we will let it handle them itself.
-                    _ => {
-                        //and give it back it's own message
-                        self.video_view.update(msg);
-                    }
-                };
-            }
-            Message::Audio(msg) => {
-                match msg {
-                    crate::audio::audio_view::Message::ToBrowser => {
-                        self.active_view = Mode::Browser;
-                        self.view();
-                    }
-                    crate::audio::audio_view::Message::ToImage => {
-                        self.active_view = Mode::Image;
-                        self.view();
-                    }
-                    //and here we decide that if it has more messages, we will let it handle them itself.
-                    _ => {
-                        //and give it back it's own message
-                        self.audio_view.update(msg);
-                    }
-                };
-            }
-            Message::AddToSidebar(entity_opt) => {
-                let mut favorites = self.config.favorites.clone();
-                for path in self.selected_paths(entity_opt) {
-                    let favorite = Favorite::from_path(path);
-                    if !favorites.iter().any(|f| f == &favorite) {
-                        favorites.push(favorite);
-                    }
-                }
-                config_set!(favorites, favorites);
-                return self.update_config();
-            }
-            Message::AddTagToContents(to, contents) => {
-                for p in contents.paths {
-                    let file = crate::sql::file(
-                        self.sql_connection.clone(),
-                        &crate::parsers::osstr_to_string(p.clone().into_os_string()),
-                    );
-                    crate::sql::insert_media_tag(
-                        self.sql_connection.clone(),
-                        file.metadata_id as u32,
-                        to.tag_id,
-                    );
-                }
-            }
-            Message::AddTagToSidebar(_entity_opt) => {
-                self.dialog_pages.push_back(DialogPage::NewTag {
-                    tag: "unnamed".to_string(),
-                });
-                return widget::text_input::focus(self.dialog_text_input.clone());
-            }
-            Message::AppTheme(app_theme) => {
-                config_set!(app_theme, app_theme);
-                return self.update_config();
-            }
-            Message::AudioMuteToggle => {
-                if self.active_view == Mode::Video {
-                    let _ = self.update(Message::VideoMessage(
-                        crate::video::video_view::Message::AudioToggle,
-                    ));
-                } else if self.active_view == Mode::Audio {
-                    let _ = self.update(Message::AudioMessage(
-                        crate::audio::audio_view::Message::AudioToggle,
-                    ));
-                } else {
-                    // no audio active
-                }
-            }
-            Message::AudioCode(val) => {
-                if self.active_view == Mode::Video {
-                    self.video_view.current_audio = val as i32;
-                    let _ = self.update(Message::VideoMessage(
-                        crate::video::video_view::Message::AudioCode(val),
-                    ));
-                } else if self.active_view == Mode::Audio {
-                    self.audio_view.current_audio = val as i32;
-                    let _ = self.update(Message::AudioMessage(
-                        crate::audio::audio_view::Message::AudioCode(val),
-                    ));
-                } else {
-                    // no audio active
-                }
-            }
-            Message::AudioVolume(val) => {
-                if self.active_view == Mode::Video {
-                    let _ = self.update(Message::VideoMessage(
-                        crate::video::video_view::Message::AudioVolume(val),
-                    ));
-                } else if self.active_view == Mode::Audio {
-                    let _ = self.update(Message::AudioMessage(
-                        crate::audio::audio_view::Message::AudioVolume(val),
-                    ));
-                } else {
-                    // no audio active
-                }
-            }
-            Message::TextCode(val) => {
-                if self.active_view == Mode::Video {
-                    self.video_view.current_text = val as i32;
-                    let _ = self.update(Message::VideoMessage(
-                        crate::video::video_view::Message::TextCode(val),
-                    ));
-                } else if self.active_view == Mode::Audio {
-                    self.audio_view.current_text = val as i32;
-                    let _ = self.update(Message::AudioMessage(
-                        crate::audio::audio_view::Message::TextCode(val),
-                    ));
-                } else {
-                    // no audio active
-                }
-            }
-            Message::Fullscreen => {
-                if self.active_view == Mode::Video {
-                    self.video_view.dropdown_opt = None;
-                    self.video_view.fullscreen = !self.video_view.fullscreen;
-                    self.core.window.show_headerbar = !self.video_view.fullscreen;
-                    return window::change_mode(
-                        window::Id::RESERVED,
-                        if self.video_view.fullscreen {
-                            window::Mode::Fullscreen
-                        } else {
-                            window::Mode::Windowed
-                        },
-                    );
-                } else if self.active_view == Mode::Audio {
-                    self.audio_view.dropdown_opt = None;
-
-                    self.audio_view.fullscreen = !self.audio_view.fullscreen;
-                    self.core.window.show_headerbar = !self.audio_view.fullscreen;
-                    return window::change_mode(
-                        window::Id::RESERVED,
-                        if self.audio_view.fullscreen {
-                            window::Mode::Fullscreen
-                        } else {
-                            window::Mode::Windowed
-                        },
-                    );
-                } else {
-                    // no audio active
-                }
-            }
-            Message::Chapter(val) => {
-                if self.active_view == Mode::Video {
-                    self.video_view.current_chapter = val;
-                    let new_pos = self.video_view.chapters[val].start as f64;
-                    let _ = self.update(Message::VideoMessage(
-                        crate::video::video_view::Message::Seek(new_pos),
-                    ));
-                    if let Some(video) = self.video_view.video_opt.as_mut() {
-                        if video.paused() {
-                            video.set_paused(false);
-                        }
-                    }
-                } else if self.active_view == Mode::Audio {
-                    self.audio_view.current_chapter = val;
-                    let new_pos = self.audio_view.chapters[val].start as f64;
-                    let _ = self.update(Message::AudioMessage(
-                        crate::audio::audio_view::Message::Seek(new_pos),
-                    ));
-                    if let Some(audio) = self.audio_view.audio_opt.as_mut() {
-                        if audio.paused() {
-                            audio.set_paused(false);
-                        }
-                    }
-                } else {
-                    // no audio active
-                }
-            }
-            Message::Seek(val) => {
-                if self.active_view == Mode::Video {
-                    let _ = self.update(Message::VideoMessage(
-                        crate::video::video_view::Message::Seek(val),
-                    ));
-                    if let Some(video) = self.video_view.video_opt.as_mut() {
-                        if video.paused() {
-                            video.set_paused(false);
-                        }
-                    }
-                } else if self.active_view == Mode::Audio {
-                    let _ = self.update(Message::AudioMessage(
-                        crate::audio::audio_view::Message::Seek(val),
-                    ));
-                    if let Some(audio) = self.audio_view.audio_opt.as_mut() {
-                        if audio.paused() {
-                            audio.set_paused(false);
-                        }
-                    }
-                } else {
-                    // no audio active
-                }
-            }
-            Message::SeekRelative(val) => {
-                if self.active_view == Mode::Video {
-                    let _ = self.update(Message::VideoMessage(
-                        crate::video::video_view::Message::SeekRelative(val),
-                    ));
-                    if let Some(video) = self.video_view.video_opt.as_mut() {
-                        if video.paused() {
-                            video.set_paused(false);
-                        }
-                    }
-                } else if self.active_view == Mode::Audio {
-                    let _ = self.update(Message::AudioMessage(
-                        crate::audio::audio_view::Message::SeekRelative(val),
-                    ));
-                    if let Some(audio) = self.audio_view.audio_opt.as_mut() {
-                        if audio.paused() {
-                            audio.set_paused(false);
-                        }
-                    }
-                } else {
-                    // no audio active
-                }
-            }
-            Message::EndOfStream => {
-                if self.active_view == Mode::Video {
-                    let _ = self.update(Message::VideoMessage(
-                        crate::video::video_view::Message::EndOfStream,
-                    ));
-                } else if self.active_view == Mode::Audio {
-                    let _ = self.update(Message::AudioMessage(
-                        crate::audio::audio_view::Message::EndOfStream,
-                    ));
-                } else {
-                    // no audio active
-                }
-            }
-            Message::NewFrame => {
-                if self.active_view == Mode::Video {
-                    let _ = self.update(Message::VideoMessage(
-                        crate::video::video_view::Message::NewFrame,
-                    ));
-                } else if self.active_view == Mode::Audio {
-                    let _ = self.update(Message::AudioMessage(
-                        crate::audio::audio_view::Message::NewFrame,
-                    ));
-                } else {
-                    // no audio active
-                }
-            }
-            Message::PlayPause => {
-                if self.active_view == Mode::Video {
-                    let _ = self.update(Message::VideoMessage(
-                        crate::video::video_view::Message::PlayPause,
-                    ));
-                } else if self.active_view == Mode::Audio {
-                    let _ = self.update(Message::AudioMessage(
-                        crate::audio::audio_view::Message::PlayPause,
-                    ));
-                } else {
-                    // no audio active
-                }
-            }
-            Message::Previous(entity_opt) => {
-                if self.active_view == Mode::Video {
-                    let _ = self.update(Message::VideoMessage(
-                        crate::video::video_view::Message::PreviousFile,
-                    ));
-                } else if self.active_view == Mode::Audio {
-                    let _ = self.update(Message::AudioMessage(
-                        crate::audio::audio_view::Message::PreviousFile,
-                    ));
-                } else if self.active_view == Mode::Browser {
-                    let _ = self.update(Message::TabMessage(
-                        entity_opt,
-                        crate::tab::Message::GoPrevious,
-                    ));
-                } else {
-                    let _ = self.update(Message::ImageMessage(
-                        crate::image::image_view::Message::PreviousFile,
-                    ));
-                }
-            }
-            Message::Next(entity_opt) => {
-                if self.active_view == Mode::Video {
-                    let _ = self.update(Message::VideoMessage(
-                        crate::video::video_view::Message::NextFile,
-                    ));
-                } else if self.active_view == Mode::Audio {
-                    let _ = self.update(Message::AudioMessage(
-                        crate::audio::audio_view::Message::NextFile,
-                    ));
-                } else if self.active_view == Mode::Browser {
-                    let _ = self.update(Message::TabMessage(
-                        entity_opt,
-                        crate::tab::Message::GoPrevious,
-                    ));
-                } else {
-                    let _ = self.update(Message::ImageMessage(
-                        crate::image::image_view::Message::NextFile,
-                    ));
-                }
-            }
+            Message::Open(_entity_opt, filepath) => self.open_message(_entity_opt, filepath),
+            Message::Browser => self.browser_view(),
+            Message::Image(msg) => self.image_msg(msg),
+            Message::Video(msg) => self.video_msg(msg),
+            Message::Audio(msg) => self.audio_msg(msg),
+            Message::AddToSidebar(entity_opt) => self.add_to_sidebar(entity_opt),
+            Message::AddTagToContents(to, contents) => self.add_tag_to_contents(to, contents),
+            Message::AddTagToSidebar(_entity_opt) => self.add_tag_to_sidebar(_entity_opt),
+            Message::AppTheme(app_theme) => self.app_theme(app_theme),
+            Message::AudioMuteToggle => self.audio_mute_toggle(),
+            Message::AudioCode(val) => self.audio_code(val),
+            Message::AudioVolume(val) => self.audio_volume(val),
+            Message::TextCode(val) => self.text_code(val),
+            Message::Fullscreen => self.fullscreen(),
+            Message::Chapter(val) => self.chapter(val),
+            Message::Seek(val) => self.seek(val),
+            Message::SeekRelative(val) => self.seek_relative(val),
+            Message::EndOfStream => self.end_of_stream(),
+            Message::NewFrame => self.new_frame(),
+            Message::PlayPause => self.play_pause(),
+            Message::Previous(entity_opt) => self.previous(entity_opt),
+            Message::Next(entity_opt) => self.next(entity_opt),
             Message::RecursiveScanDirectories(entity_opt) => {
-                let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
-                if let Some(tab) = self.tab_model.data_mut::<Tab>(entity) {
-                    if let Location::Path(_parent) = &tab.location {
-                        if let Some(items) = tab.items_opt() {
-                            for item in items.iter() {
-                                if item.selected {
-                                    if let Some(Location::Path(path)) = &item.location_opt {
-                                        let pathbuf = path.to_path_buf();
-                                        let sql_connection = self.sql_connection.clone();
-                                        let _joinhandle = std::thread::spawn(move || {
-                                            crate::tab::scan_path_recursive(sql_connection, pathbuf)
-                                        });
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                self.recursive_scan_directories(entity_opt)
             }
-            Message::MissingPlugin(element) => {
-                if self.active_view == Mode::Video {
-                    if let Some(video) = &mut self.video_view.video_opt {
-                        video.set_paused(true);
-                    }
-                    return Task::perform(
-                        async move {
-                            tokio::task::spawn_blocking(move || {
-                                match gst_pbutils::MissingPluginMessage::parse(&element) {
-                                    Ok(missing_plugin) => {
-                                        let mut install_ctx =
-                                            gst_pbutils::InstallPluginsContext::new();
-                                        install_ctx
-                                            .set_desktop_id(&format!("{}.desktop", Self::APP_ID));
-                                        let install_detail = missing_plugin.installer_detail();
-                                        println!("installing plugins: {}", install_detail);
-                                        let status =
-                                            gst_pbutils::missing_plugins::install_plugins_sync(
-                                                &[&install_detail],
-                                                Some(&install_ctx),
-                                            );
-                                        log::info!("plugin install status: {}", status);
-                                        log::info!(
-                                            "gstreamer registry update: {:?}",
-                                            gst::Registry::update()
-                                        );
-                                    }
-                                    Err(err) => {
-                                        log::warn!("failed to parse missing plugin message: {err}");
-                                    }
-                                }
-                                message::app(Message::AudioMessage(
-                                    crate::audio::audio_view::Message::Reload,
-                                ))
-                            })
-                            .await
-                            .unwrap()
-                        },
-                        |x| x,
-                    );
-                } else if self.active_view == Mode::Audio {
-                    if let Some(video) = &mut self.audio_view.audio_opt {
-                        video.set_paused(true);
-                    }
-                    return Task::perform(
-                        async move {
-                            tokio::task::spawn_blocking(move || {
-                                match gst_pbutils::MissingPluginMessage::parse(&element) {
-                                    Ok(missing_plugin) => {
-                                        let mut install_ctx =
-                                            gst_pbutils::InstallPluginsContext::new();
-                                        install_ctx
-                                            .set_desktop_id(&format!("{}.desktop", Self::APP_ID));
-                                        let install_detail = missing_plugin.installer_detail();
-                                        println!("installing plugins: {}", install_detail);
-                                        let status =
-                                            gst_pbutils::missing_plugins::install_plugins_sync(
-                                                &[&install_detail],
-                                                Some(&install_ctx),
-                                            );
-                                        log::info!("plugin install status: {}", status);
-                                        log::info!(
-                                            "gstreamer registry update: {:?}",
-                                            gst::Registry::update()
-                                        );
-                                    }
-                                    Err(err) => {
-                                        log::warn!("failed to parse missing plugin message: {err}");
-                                    }
-                                }
-                                message::app(Message::AudioMessage(
-                                    crate::audio::audio_view::Message::Reload,
-                                ))
-                            })
-                            .await
-                            .unwrap()
-                        },
-                        |x| x,
-                    );
-                }
-            }
-            Message::AudioMessage(audio_message) => match audio_message {
-                crate::audio::audio_view::Message::ToBrowser => {
-                    self.active_view = Mode::Browser;
-                    self.view();
-                }
-                crate::audio::audio_view::Message::Open(audiopath) => {
-                    match url::Url::from_file_path(std::path::PathBuf::from(&audiopath)) {
-                        Ok(url) => {
-                            self.audio_view.audiopath_opt = Some(url);
-                            self.audio_view.load();
-                            if let Some(tab) = self.tab_model.data_mut::<Tab>(self.tab_model_id) {
-                                let v = tab.selected_file_paths();
-                                for path in v {
-                                    if let Some(items) = tab.items_opt() {
-                                        for item in items.iter() {
-                                            if let Some(audio) = item.audio_opt.as_ref() {
-                                                if PathBuf::from(&audio.path) == path {
-                                                    let (v, s) = crate::sql::fill_chapters(
-                                                        audio.chapters.clone(),
-                                                        audio.duration,
-                                                    );
-                                                    if v.len() > 0 {
-                                                        self.audio_view.chapters.clear();
-                                                        self.audio_view.chapters_str.clear();
-                                                        self.audio_view.chapters.extend(v);
-                                                        self.audio_view.chapters_str.extend(s);
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            self.active_view = Mode::Audio;
-                            self.view();
-                        }
-                        _ => {}
-                    }
-                }
-                crate::audio::audio_view::Message::NextFile => {
-                    // open next file in the sorted list if possible
-                    let id = self.tab_model.active();
-                    if id != self.tab_model_id {
-                        self.tab_model_id = id;
-                    }
-                    if let Some(tab) = self.tab_model.data_mut::<Tab>(self.tab_model_id) {
-                        let _ret = tab.update(tab::Message::ItemRight, self.modifiers);
-                        if let Some(path) = tab.selected_file_paths().into_iter().next() {
-                            return match self.open_path(path) {
-                                Some(command) => command,
-                                _ => Task::none(),
-                            };
-                        }
-                    }
-                }
-                crate::audio::audio_view::Message::PreviousFile => {
-                    // open next file in the sorted list if possible
-                    let id = self.tab_model.active();
-                    if id != self.tab_model_id {
-                        self.tab_model_id = id;
-                    }
-                    if let Some(tab) = self.tab_model.data_mut::<Tab>(self.tab_model_id) {
-                        let _ret = tab.update(tab::Message::ItemLeft, self.modifiers);
-                        if let Some(path) = tab.selected_file_paths().into_iter().next() {
-                            return match self.open_path(path) {
-                                Some(command) => command,
-                                _ => Task::none(),
-                            };
-                        }
-                    }
-                }
-                crate::audio::audio_view::Message::FileClose => {
-                    self.audio_view.close();
-                }
-                crate::audio::audio_view::Message::FileLoad(_url) => {
-                    self.audio_view.load();
-                }
-                crate::audio::audio_view::Message::FileOpen => {
-                    //TODO: embed cosmic-files dialog (after libcosmic rebase works)
-                }
-                crate::audio::audio_view::Message::DropdownToggle(menu_kind) => {
-                    if self.audio_view.dropdown_opt.take() != Some(menu_kind) {
-                        self.audio_view.dropdown_opt = Some(menu_kind);
-                    }
-                }
-                crate::audio::audio_view::Message::Fullscreen => {
-                    //TODO: cleanest way to close dropdowns
-                    self.audio_view.dropdown_opt = None;
-
-                    self.audio_view.fullscreen = !self.audio_view.fullscreen;
-                    self.core.window.show_headerbar = !self.audio_view.fullscreen;
-                    return window::change_mode(
-                        window::Id::RESERVED,
-                        if self.audio_view.fullscreen {
-                            window::Mode::Fullscreen
-                        } else {
-                            window::Mode::Windowed
-                        },
-                    );
-                }
-                crate::audio::audio_view::Message::AudioCode(code) => {
-                    if let Ok(code) = i32::try_from(code) {
-                        if let Some(audio) = &self.audio_view.audio_opt {
-                            let pipeline = audio.pipeline();
-                            pipeline.set_property("current-audio", code);
-                            self.audio_view.current_audio = pipeline.property("current-audio");
-                        }
-                    }
-                }
-                crate::audio::audio_view::Message::AudioToggle => {
-                    if let Some(audio) = &mut self.audio_view.audio_opt {
-                        audio.set_muted(!audio.muted());
-                        self.audio_view.update_controls(true);
-                    }
-                }
-                crate::audio::audio_view::Message::AudioVolume(volume) => {
-                    if let Some(audio) = &mut self.audio_view.audio_opt {
-                        audio.set_volume(volume);
-                        self.audio_view.update_controls(true);
-                    }
-                }
-                crate::audio::audio_view::Message::TextCode(code) => {
-                    if let Ok(code) = i32::try_from(code) {
-                        if let Some(audio) = &self.audio_view.audio_opt {
-                            let pipeline = audio.pipeline();
-                            pipeline.set_property("current-text", code);
-                            self.audio_view.current_text = pipeline.property("current-text");
-                        }
-                    }
-                }
-                crate::audio::audio_view::Message::ShowControls => {
-                    self.audio_view.update_controls(true);
-                }
-                _ => self.audio_view.update(audio_message),
-            },
-            Message::Config(config) => {
-                if config != self.config {
-                    log::info!("update config");
-                    // Show details is preserved for existing instances
-                    let show_details = self.config.show_details;
-                    self.config = config;
-                    self.config.show_details = show_details;
-                    return self.update_config();
-                }
-            }
-            Message::Copy(entity_opt) => {
-                let paths = self.selected_paths(entity_opt);
-                let contents = ClipboardCopy::new(ClipboardKind::Copy, &paths);
-                return clipboard::write_data(contents);
-            }
-            Message::Cut(entity_opt) => {
-                let paths = self.selected_paths(entity_opt);
-                let contents = ClipboardCopy::new(ClipboardKind::Cut, &paths);
-                return clipboard::write_data(contents);
-            }
-            Message::CloseToast(id) => {
-                self.toasts.remove(id);
-            }
-            Message::CosmicSettings(arg) => {
-                //TODO: use special settings URL scheme instead?
-                let mut command = process::Command::new("cosmic-settings");
-                command.arg(arg);
-                match spawn_detached(&mut command) {
-                    Ok(()) => {}
-                    Err(err) => {
-                        log::warn!("failed to run cosmic-settings {}: {}", arg, err)
-                    }
-                }
-            }
-            Message::DialogCancel => {
-                self.dialog_pages.pop_front();
-            }
-            Message::DialogComplete => {
-                if let Some(dialog_page) = self.dialog_pages.pop_front() {
-                    match dialog_page {
-                        DialogPage::EmptyTrash => {
-                            self.operation(Operation::EmptyTrash);
-                        }
-                        DialogPage::FailedOperation(id) => {
-                            log::warn!("TODO: retry operation {}", id);
-                        }
-                        DialogPage::MountError {
-                            mounter_key,
-                            item,
-                            error: _,
-                        } => {
-                            if let Some(mounter) = MOUNTERS.get(&mounter_key) {
-                                return mounter.mount(item).map(|_| message::none());
-                            }
-                        }
-                        DialogPage::NetworkAuth {
-                            mounter_key: _,
-                            uri: _,
-                            auth,
-                            auth_tx,
-                        } => {
-                            return Task::perform(
-                                async move {
-                                    auth_tx.send(auth).await.unwrap();
-                                    message::none()
-                                },
-                                |x| x,
-                            );
-                        }
-                        DialogPage::NetworkError {
-                            mounter_key: _,
-                            uri,
-                            error: _,
-                        } => {
-                            //TODO: re-use mounter_key?
-                            return Task::batch([
-                                self.update(Message::NetworkDriveInput(uri)),
-                                self.update(Message::NetworkDriveSubmit),
-                            ]);
-                        }
-                        DialogPage::NewItem { parent, name, dir } => {
-                            let path = parent.join(name);
-                            self.operation(if dir {
-                                Operation::NewFolder { path }
-                            } else {
-                                Operation::NewFolder { path }
-                            });
-                        }
-                        DialogPage::NewTag { tag } => {
-                            let tag_id =
-                                crate::sql::insert_tag(self.sql_connection.clone(), 0, tag.clone())
-                                    as u32;
-                            let t = crate::sql::Tag {
-                                tag_id,
-                                tag: tag.clone(),
-                            };
-                            let mut tags = self.config.tags.clone();
-                            //let taglocation = Location::Tag(t);
-                            if !tags.iter().any(|f| f == &t) {
-                                tags.push(t);
-                            }
-                            config_set!(tags, tags);
-                            return self.update_config();
-                        }
-                        DialogPage::OpenWith {
-                            path,
-                            apps,
-                            selected,
-                            ..
-                        } => {
-                            if let Some(app) = apps.get(selected) {
-                                if let Some(mut command) = app.command(Some(path.clone().into())) {
-                                    match spawn_detached(&mut command) {
-                                        Ok(()) => {
-                                            let _ = recently_used_xbel::update_recently_used(
-                                                &path,
-                                                App::APP_ID.to_string(),
-                                                "media-browser".to_string(),
-                                                None,
-                                            );
-                                        }
-                                        Err(err) => {
-                                            log::warn!(
-                                                "failed to open {:?} with {:?}: {}",
-                                                path,
-                                                app.id,
-                                                err
-                                            )
-                                        }
-                                    }
-                                } else {
-                                    log::warn!(
-                                        "failed to open {:?} with {:?}: failed to get command",
-                                        path,
-                                        app.id
-                                    );
-                                }
-                            }
-                        }
-                        DialogPage::RenameItem {
-                            from, parent, name, ..
-                        } => {
-                            let to = parent.join(name);
-                            self.operation(Operation::Rename { from, to });
-                        }
-                        DialogPage::Replace { .. } => {
-                            log::warn!("replace dialog should be completed with replace result");
-                        }
-                    }
-                }
-            }
-            Message::DialogPush(dialog_page) => {
-                self.dialog_pages.push_back(dialog_page);
-            }
-            Message::DialogUpdate(dialog_page) => {
-                if !self.dialog_pages.is_empty() {
-                    self.dialog_pages[0] = dialog_page;
-                }
-            }
-            Message::DialogUpdateComplete(dialog_page) => {
-                return Task::batch([
-                    self.update(Message::DialogUpdate(dialog_page)),
-                    self.update(Message::DialogComplete),
-                ]);
-            }
-            Message::ImageMessage(image_message) => match image_message {
-                crate::image::image_view::Message::ToBrowser => {
-                    self.active_view = Mode::Browser;
-                    self.view();
-                }
-                crate::image::image_view::Message::ToImage => {}
-                crate::image::image_view::Message::ToVideo => {}
-                crate::image::image_view::Message::ToAudio => {}
-                crate::image::image_view::Message::Open(imagepath) => {
-                    self.image_view.image_path = imagepath;
-                    self.image_view.handle_opt = Some(crate::image::image::Handle::from_path(
-                        self.image_view.image_path.clone(),
-                    ));
-                    self.image_view.image_path_loaded = self.image_view.image_path.clone();
-                    self.active_view = Mode::Image;
-                    self.view();
-                }
-                crate::image::image_view::Message::NextFile => {
-                    // open next file in the sorted list if possible
-                    let id = self.tab_model.active();
-                    if id != self.tab_model_id {
-                        self.tab_model_id = id;
-                    }
-                    if let Some(tab) = self.tab_model.data_mut::<Tab>(self.tab_model_id) {
-                        let _ret = tab.update(tab::Message::ItemRight, self.modifiers);
-                        if let Some(path) = tab.selected_file_paths().into_iter().next() {
-                            return match self.open_path(path) {
-                                Some(command) => command,
-                                _ => Task::none(),
-                            };
-                        }
-                    }
-                }
-                crate::image::image_view::Message::PreviousFile => {
-                    // open previous file in the sorted list if possible
-                    let id = self.tab_model.active();
-                    if id != self.tab_model_id {
-                        self.tab_model_id = id;
-                    }
-                    if let Some(tab) = self.tab_model.data_mut::<Tab>(self.tab_model_id) {
-                        let _ret = tab.update(tab::Message::ItemLeft, self.modifiers);
-                        if let Some(path) = tab.selected_file_paths().into_iter().next() {
-                            return match self.open_path(path) {
-                                Some(command) => command,
-                                _ => Task::none(),
-                            };
-                        }
-                    }
-                }
-                _ => {
-                    self.image_view.update(image_message);
-                }
-            },
-            Message::Key(modifiers, key) => {
-                let entity = self.tab_model.active();
-                for (key_bind, action) in self.key_binds.iter() {
-                    if key_bind.matches(modifiers, &key) {
-                        return self.update(action.message(Some(entity)));
-                    }
-                }
-            }
-            Message::MaybeExit => {
-                if self.window_id_opt.is_none() && self.pending_operations.is_empty() {
-                    // Exit if window is closed and there are no pending operations
-                    process::exit(0);
-                }
-            }
-            Message::MetadataDelete => {
-                let mut metadata_path;
-                match dirs::data_local_dir() {
-                    Some(pb) => {
-                        metadata_path = pb;
-                        if !metadata_path.exists() {
-                            let ret = std::fs::create_dir_all(metadata_path.clone());
-                            if ret.is_err() {
-                                log::warn!(
-                                    "Failed to create directory {}",
-                                    metadata_path.display()
-                                );
-                                metadata_path = crate::sql::home_dir_or_root();
-                            }
-                        }
-                    }
-                    None => {
-                        metadata_path = crate::sql::home_dir_or_root();
-                    }
-                }
-                let paths = vec![metadata_path];
-                if !paths.is_empty() {
-                    self.operation(Operation::Delete { paths });
-                }
-            }
-            Message::LaunchUrl(url) => match open::that_detached(&url) {
-                Ok(()) => {}
-                Err(err) => {
-                    log::warn!("failed to open {:?}: {}", url, err);
-                }
-            },
+            Message::MissingPlugin(element) => self.missing_plugin(element),
+            Message::AudioMessage(audio_message) => self.audio_message(audio_message),
+            Message::Config(config) => self.config(config),
+            Message::Copy(entity_opt) => self.copy(entity_opt),
+            Message::Cut(entity_opt) => self.cut(entity_opt),
+            Message::CloseToast(id) => self.close_toast(id),
+            Message::CosmicSettings(arg) => Self::cosmic_settings(arg),
+            Message::DialogCancel => self.dialog_cancel(),
+            Message::DialogComplete => self.dialog_complete(),
+            Message::DialogPush(dialog_page) => self.dialog_push(dialog_page),
+            Message::DialogUpdate(dialog_page) => self.dialog_update(dialog_page),
+            Message::DialogUpdateComplete(dialog_page) => self.dialog_update_complete(dialog_page),
+            Message::ImageMessage(image_message) => self.image_message(image_message),
+            Message::Key(modifiers, key) => self.key(modifiers, key),
+            Message::MaybeExit => self.maybe_exit(),
+            Message::MetadataDelete => self.delete_metadata(),
+            Message::LaunchUrl(url) => Self::launch_url(url),
             Message::LaunchSearch(search_type, search_term) => {
                 use crate::sql::SearchType as ST;
                 self.search = crate::sql::SearchData {
@@ -3987,280 +2706,49 @@ impl Application for App {
                 }
                 return self.update(Message::SearchCommit);
             }
-            Message::Modifiers(modifiers) => {
-                self.modifiers = modifiers;
-            }
-            Message::MoveToTrash(entity_opt) => {
-                let paths = self.selected_paths(entity_opt);
-                if !paths.is_empty() {
-                    self.operation(Operation::Delete { paths });
-                }
-            }
+            Message::Modifiers(modifiers) => self.modifiers(modifiers),
+            Message::MoveToTrash(entity_opt) => self.move_to_trash(entity_opt),
             Message::MounterItems(mounter_key, mounter_items) => {
-                // Check for unmounted folders
-                let mut unmounted = Vec::new();
-                if let Some(old_items) = self.mounter_items.get(&mounter_key) {
-                    for old_item in old_items.iter() {
-                        if let Some(old_path) = old_item.path() {
-                            if old_item.is_mounted() {
-                                let mut still_mounted = false;
-                                for item in mounter_items.iter() {
-                                    if let Some(path) = item.path() {
-                                        if path == old_path {
-                                            if item.is_mounted() {
-                                                still_mounted = true;
-                                                break;
-                                            }
-                                        }
-                                    }
-                                }
-                                if !still_mounted {
-                                    unmounted.push(Location::Path(old_path));
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Go back to home in any tabs that were unmounted
-                let mut commands = Vec::new();
-                {
-                    let home_location = Location::Path(home_dir());
-                    let entities: Vec<_> = self.tab_model.iter().collect();
-                    for entity in entities {
-                        let title_opt = match self.tab_model.data_mut::<Tab>(entity) {
-                            Some(tab) => {
-                                if unmounted.contains(&tab.location) {
-                                    tab.change_location(&home_location, None);
-                                    Some(tab.title())
-                                } else {
-                                    None
-                                }
-                            }
-                            None => None,
-                        };
-                        if let Some(title) = title_opt {
-                            self.tab_model.text_set(entity, title);
-                            commands.push(self.rescan_tab(entity, home_location.clone(), None));
-                        }
-                    }
-                    if !commands.is_empty() {
-                        commands.push(self.update_title());
-                        commands.push(self.update_watcher());
-                    }
-                }
-
-                // Insert new items
-                self.mounter_items.insert(mounter_key, mounter_items);
-
-                // Update nav bar
-                //TODO: this could change favorites IDs while they are in use
-                self.update_nav_model();
-
-                return Task::batch(commands);
+                self.mounter_items(mounter_key, mounter_items)
             }
-            Message::MountResult(mounter_key, item, res) => match res {
-                Ok(true) => {
-                    log::info!("connected to {:?}", item);
-                }
-                Ok(false) => {
-                    log::info!("cancelled connection to {:?}", item);
-                }
-                Err(error) => {
-                    log::warn!("failed to connect to {:?}: {}", item, error);
-                    self.dialog_pages.push_back(DialogPage::MountError {
-                        mounter_key,
-                        item,
-                        error,
-                    });
-                }
-            },
-            Message::MouseScroll(delta) => {
-                let delta_y = match delta {
-                    cosmic::iced_core::mouse::ScrollDelta::Lines { y, .. } => y,
-                    cosmic::iced_core::mouse::ScrollDelta::Pixels { y, .. } => y,
-                };
-                if self.active_view == Mode::Video {
-                    let seconds = self.video_view.position + delta_y as f64 * 10.0;
-                    let _ = self.update(Message::VideoMessage(
-                        crate::video::video_view::Message::Seek(seconds),
-                    ));
-                    if let Some(video) = self.video_view.video_opt.as_mut() {
-                        if video.paused() {
-                            video.set_paused(false);
-                        }
-                    }
-                } else if self.active_view == Mode::Audio {
-                    let seconds = self.audio_view.position + delta_y as f64 * 10.0;
-                    let _ = self.update(Message::AudioMessage(
-                        crate::audio::audio_view::Message::Seek(seconds),
-                    ));
-                    if let Some(audio) = self.audio_view.audio_opt.as_mut() {
-                        if audio.paused() {
-                            audio.set_paused(false);
-                        }
-                    }
-                }
-
-                return Task::none();
+            Message::MountResult(mounter_key, item, res) => {
+                self.mount_result(mounter_key, item, res)
             }
+            Message::MouseScroll(delta) => self.mouse_scroll(delta),
             Message::NetworkAuth(mounter_key, uri, auth, auth_tx) => {
-                self.dialog_pages.push_back(DialogPage::NetworkAuth {
-                    mounter_key,
-                    uri,
-                    auth,
-                    auth_tx,
-                });
+                self.network_auth(mounter_key, uri, auth, auth_tx)
             }
-            Message::NetworkDriveInput(input) => {
-                self.network_drive_input = input;
-            }
-            Message::NetworkDriveSubmit => {
-                //TODO: know which mounter to use for network drives
-                if let Some((mounter_key, mounter)) = MOUNTERS.iter().next() {
-                    self.network_drive_connecting =
-                        Some((*mounter_key, self.network_drive_input.clone()));
-                    return mounter
-                        .network_drive(self.network_drive_input.clone())
-                        .map(|_| message::none());
-                }
-                log::warn!(
-                    "no mounter found for connecting to {:?}",
-                    self.network_drive_input
-                );
-            }
+            Message::NetworkDriveInput(input) => self.network_drive_input(input),
+            Message::NetworkDriveSubmit => self.network_drive_submit(),
             Message::NetworkResult(mounter_key, uri, res) => {
-                if self.network_drive_connecting == Some((mounter_key, uri.clone())) {
-                    self.network_drive_connecting = None;
-                }
-                match res {
-                    Ok(true) => {
-                        log::info!("connected to {:?}", uri);
-                        if matches!(self.context_page, ContextPage::NetworkDrive) {
-                            self.set_show_context(false);
-                        }
-                    }
-                    Ok(false) => {
-                        log::info!("cancelled connection to {:?}", uri);
-                    }
-                    Err(error) => {
-                        log::warn!("failed to connect to {:?}: {}", uri, error);
-                        self.dialog_pages.push_back(DialogPage::NetworkError {
-                            mounter_key,
-                            uri,
-                            error,
-                        });
-                    }
-                }
+                self.network_result(mounter_key, uri, res)
             }
-            Message::NewItem(entity_opt, dir) => {
-                let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
-                if let Some(tab) = self.tab_model.data_mut::<Tab>(entity) {
-                    if let Some(path) = &tab.location.path_opt() {
-                        self.dialog_pages.push_back(DialogPage::NewItem {
-                            parent: path.to_path_buf(),
-                            name: String::new(),
-                            dir,
-                        });
-                        return widget::text_input::focus(self.dialog_text_input.clone());
-                    }
-                }
-            }
+            Message::NewItem(entity_opt, dir) => self.new_item(entity_opt, dir),
             #[cfg(feature = "notify")]
             Message::Notification(notification) => {
                 self.notification_opt = Some(notification);
+                Task::none()
             }
-            Message::NotifyEvents(events) => {
-                log::debug!("{:?}", events);
-
-                let mut needs_reload = Vec::new();
-                let entities: Vec<_> = self.tab_model.iter().collect();
-                for entity in entities {
-                    if let Some(tab) = self.tab_model.data_mut::<Tab>(entity) {
-                        if let Some(path) = &tab.location.path_opt() {
-                            let mut contains_change = false;
-                            for event in events.iter() {
-                                for event_path in event.paths.iter() {
-                                    if event_path.starts_with(&path) {
-                                        match event.kind {
-                                            notify::EventKind::Modify(
-                                                notify::event::ModifyKind::Metadata(_),
-                                            )
-                                            | notify::EventKind::Modify(
-                                                notify::event::ModifyKind::Data(_),
-                                            ) => {
-                                                // If metadata or data changed, find the matching item and reload it
-                                                //TODO: this could be further optimized by looking at what exactly changed
-                                                if let Some(items) = &mut tab.items_opt {
-                                                    for item in items.iter_mut() {
-                                                        if item.path_opt() == Some(event_path) {
-                                                            //TODO: reload more, like mime types?
-                                                            match fs::metadata(&event_path) {
-                                                                Ok(new_metadata) => match &mut item
-                                                                    .metadata
-                                                                {
-                                                                    ItemMetadata::Path {
-                                                                        metadata,
-                                                                        ..
-                                                                    } => *metadata = new_metadata,
-                                                                    _ => {}
-                                                                },
-                                                                Err(err) => {
-                                                                    log::warn!("failed to reload metadata for {:?}: {}", path, err);
-                                                                }
-                                                            }
-                                                            //TODO item.thumbnail_opt =
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                            _ => {
-                                                // Any other events reload the whole tab
-                                                contains_change = true;
-                                                break;
-                                            }
-                                        }
-                                    }
-                                }
+            Message::NotifyEvents(events) => self.notify_events(events),
+            Message::NotifyWatcher(watcher_wrapper) => self.notify_watcher(watcher_wrapper),
+            Message::OpenInNewWindow(entity_opt) => {
+                match env::current_exe() {
+                    Ok(exe) => self
+                        .selected_paths(entity_opt)
+                        .into_iter()
+                        .filter(|p| p.is_dir())
+                        .for_each(|path| match process::Command::new(&exe).arg(path).spawn() {
+                            Ok(_child) => {}
+                            Err(err) => {
+                                log::error!("failed to execute {:?}: {}", exe, err);
                             }
-                            if contains_change {
-                                needs_reload.push((entity, tab.location.clone()));
-                            }
-                        }
+                        }),
+                    Err(err) => {
+                        log::error!("failed to get current executable path: {}", err);
                     }
                 }
-
-                let mut commands = Vec::with_capacity(needs_reload.len());
-                for (entity, location) in needs_reload {
-                    commands.push(self.rescan_tab(entity, location, None));
-                }
-                return Task::batch(commands);
+                return Task::none();
             }
-            Message::NotifyWatcher(mut watcher_wrapper) => match watcher_wrapper.watcher_opt.take()
-            {
-                Some(watcher) => {
-                    self.watcher_opt = Some((watcher, HashSet::new()));
-                    return self.update_watcher();
-                }
-                None => {
-                    log::warn!("message did not contain notify watcher");
-                }
-            },
-            Message::OpenInNewWindow(entity_opt) => match env::current_exe() {
-                Ok(exe) => self
-                    .selected_paths(entity_opt)
-                    .into_iter()
-                    .filter(|p| p.is_dir())
-                    .for_each(|path| match process::Command::new(&exe).arg(path).spawn() {
-                        Ok(_child) => {}
-                        Err(err) => {
-                            log::error!("failed to execute {:?}: {}", exe, err);
-                        }
-                    }),
-                Err(err) => {
-                    log::error!("failed to get current executable path: {}", err);
-                }
-            },
             Message::OpenItemLocation(entity_opt) => {
                 log::warn!("OpenItemLocation");
                 return Task::batch(self.selected_paths(entity_opt).into_iter().filter_map(
@@ -4277,939 +2765,92 @@ impl Application for App {
                     },
                 ));
             }
-            Message::Paste(entity_opt) => {
-                let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
-                if let Some(tab) = self.tab_model.data_mut::<Tab>(entity) {
-                    if let Some(path) = tab.location.path_opt() {
-                        let to = path.clone();
-                        return clipboard::read_data::<ClipboardPaste>().map(move |contents_opt| {
-                            match contents_opt {
-                                Some(contents) => {
-                                    message::app(Message::PasteContents(to.clone(), contents))
-                                }
-                                None => message::none(),
-                            }
-                        });
-                    }
-                }
-            }
-            Message::PasteContents(to, mut contents) => {
-                contents.paths.retain(|p| p != &to);
-                if !contents.paths.is_empty() {
-                    match contents.kind {
-                        ClipboardKind::Copy => {
-                            self.operation(Operation::Copy {
-                                paths: contents.paths,
-                                to,
-                            });
-                        }
-                        ClipboardKind::Cut => {
-                            self.operation(Operation::Move {
-                                paths: contents.paths,
-                                to,
-                            });
-                        }
-                    }
-                }
-            }
-            Message::PendingCancel(id) => {
-                if let Some((_, controller)) = self.pending_operations.get(&id) {
-                    controller.cancel();
-                    self.progress_operations.remove(&id);
-                }
-            }
-            Message::PendingCancelAll => {
-                for (id, (_, controller)) in self.pending_operations.iter() {
-                    controller.cancel();
-                    self.progress_operations.remove(&id);
-                }
-            }
-            Message::PendingComplete(id, op_sel) => {
-                let mut commands = Vec::with_capacity(4);
-                // Show toast for some operations
-                if let Some((op, _)) = self.pending_operations.remove(&id) {
-                    if let Some(description) = op.toast() {
-                        if let Operation::Delete { ref paths } = op {
-                            let paths: Arc<[PathBuf]> = Arc::from(paths.as_slice());
-                            commands.push(
-                                self.toasts
-                                    .push(
-                                        widget::toaster::Toast::new(description)
-                                            .action(fl!("undo"), move |tid| {
-                                                Message::UndoTrash(tid, paths.clone())
-                                            }),
-                                    )
-                                    .map(cosmic::app::Message::App),
-                            );
-                        }
-                    }
-                    self.complete_operations.insert(id, op);
-                }
-                // Close progress notification if all relavent operations are finished
-                if !self
-                    .pending_operations
-                    .iter()
-                    .any(|(_id, (op, _))| op.show_progress_notification())
-                {
-                    self.progress_operations.clear();
-                }
-                // Potentially show a notification
-                commands.push(self.update_notification());
-                // Rescan and select based on operation
-                commands.push(self.rescan_operation_selection(op_sel));
-                // Manually rescan any trash tabs after any operation is completed
-                commands.push(self.rescan_trash());
-                // if search is active, update "search" tab view
-                commands.push(self.search());
-                return Task::batch(commands);
-            }
-            Message::PendingDismiss => {
-                self.progress_operations.clear();
-            }
-            Message::PendingError(id, err) => {
-                if let Some((op, controller)) = self.pending_operations.remove(&id) {
-                    // Only show dialog if not cancelled
-                    if !controller.is_cancelled() {
-                        self.dialog_pages.push_back(DialogPage::FailedOperation(id));
-                    }
-                    // Remove from progress
-                    self.progress_operations.remove(&id);
-                    self.failed_operations.insert(id, (op, controller, err));
-                }
-                // Close progress notification if all relavent operations are finished
-                if !self
-                    .pending_operations
-                    .iter()
-                    .any(|(_id, (op, _))| op.show_progress_notification())
-                {
-                    self.progress_operations.clear();
-                }
-                // Manually rescan any trash tabs after any operation is completed
-                return self.rescan_trash();
-            }
-            Message::PendingPause(id, pause) => {
-                if let Some((_, controller)) = self.pending_operations.get(&id) {
-                    if pause {
-                        controller.pause();
-                    } else {
-                        controller.unpause();
-                    }
-                }
-            }
-            Message::PendingPauseAll(pause) => {
-                for (_id, (_, controller)) in self.pending_operations.iter() {
-                    if pause {
-                        controller.pause();
-                    } else {
-                        controller.unpause();
-                    }
-                }
-            }
-            Message::Preview(entity_opt) => {
-                match self.mode {
-                    Mode::App => {
-                        let show_details = !self.config.show_details;
-                        //TODO: move to update_config?
-                        self.context_page = ContextPage::Preview(None, PreviewKind::Selected);
-                        self.core.window.show_context = show_details;
-                        config_set!(show_details, show_details);
-                        return self.update_config();
-                    }
-                    Mode::Desktop => {
-                        let selected_paths = self.selected_paths(entity_opt);
-                        let mut commands = Vec::with_capacity(selected_paths.len());
-                        for _path in selected_paths {
-                            let mut settings = window::Settings::default();
-                            settings.decorations = true;
-                            settings.min_size = Some(Size::new(360.0, 180.0));
-                            settings.resizable = true;
-                            settings.size = Size::new(480.0, 600.0);
-                            settings.transparent = true;
+            Message::Paste(entity_opt) => self.paste(entity_opt),
+            Message::PasteContents(to, contents) => self.paste_contents(to, contents),
+            Message::PendingCancel(id) => self.pending_cancel(id),
+            Message::PendingCancelAll => self.pending_cancel_all(),
+            Message::PendingComplete(id, op_sel) => self.pending_complete(id, op_sel),
+            Message::PendingDismiss => self.pending_dismiss(),
+            Message::PendingError(id, err) => self.pending_error(id, err),
+            Message::PendingPause(id, pause) => self.pending_pause(id, pause),
+            Message::PendingPauseAll(pause) => self.pending_pause_all(pause),
+            Message::Preview(entity_opt) => self.preview_message(entity_opt),
+            Message::RescanTrash => self.rescan_trash_message(),
 
-                            #[cfg(target_os = "linux")]
-                            {
-                                // Use the dialog ID to make it float
-                                settings.platform_specific.application_id =
-                                    "eu.fangornsrealm.MediaBrowserDialog".to_string();
-                            }
-
-                            let (_id, command) = window::open(settings);
-                            commands.push(command.map(|_id| message::none()));
-                        }
-                        return Task::batch(commands);
-                    }
-                    Mode::Browser => {
-                        let show_details = !self.config.show_details;
-                        //TODO: move to update_config?
-                        self.context_page = ContextPage::Preview(None, PreviewKind::Selected);
-                        self.core.window.show_context = show_details;
-                        config_set!(show_details, show_details);
-                        return self.update_config();
-                    }
-                    Mode::Image => {
-                        let show_details = !self.config.show_details;
-                        //TODO: move to update_config?
-                        self.context_page = ContextPage::Preview(None, PreviewKind::Selected);
-                        self.core.window.show_context = show_details;
-                        config_set!(show_details, show_details);
-                        return self.update_config();
-                    }
-                    Mode::Video => {
-                        let show_details = !self.config.show_details;
-                        //TODO: move to update_config?
-                        self.context_page = ContextPage::Preview(None, PreviewKind::Selected);
-                        self.core.window.show_context = show_details;
-                        config_set!(show_details, show_details);
-                        return self.update_config();
-                    }
-                    Mode::Audio => {
-                        let show_details = !self.config.show_details;
-                        //TODO: move to update_config?
-                        self.context_page = ContextPage::Preview(None, PreviewKind::Selected);
-                        self.core.window.show_context = show_details;
-                        config_set!(show_details, show_details);
-                        return self.update_config();
-                    }
-                }
-            }
-            Message::RescanTrash => {
-                // Update trash icon if empty/full
-                let maybe_entity = self.nav_model.iter().find(|&entity| {
-                    self.nav_model
-                        .data::<Location>(entity)
-                        .map(|loc| matches!(loc, Location::Trash))
-                        .unwrap_or_default()
-                });
-                if let Some(entity) = maybe_entity {
-                    self.nav_model
-                        .icon_set(entity, widget::icon::icon(tab::trash_icon_symbolic(16)));
-                }
-
-                return Task::batch([self.rescan_trash()]);
-            }
-
-            Message::Rename(entity_opt) => {
-                let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
-                if let Some(tab) = self.tab_model.data_mut::<Tab>(entity) {
-                    if let Some(parent) = tab.location.path_opt() {
-                        if let Some(items) = tab.items_opt() {
-                            let mut selected = Vec::new();
-                            for item in items.iter() {
-                                if item.selected {
-                                    if let Some(path) = item.path_opt() {
-                                        selected.push(path.to_path_buf());
-                                    }
-                                }
-                            }
-                            if !selected.is_empty() {
-                                //TODO: batch rename
-                                for path in selected {
-                                    let name = match path.file_name().and_then(|x| x.to_str()) {
-                                        Some(some) => some.to_string(),
-                                        None => continue,
-                                    };
-                                    let dir = path.is_dir();
-                                    self.dialog_pages.push_back(DialogPage::RenameItem {
-                                        from: path,
-                                        parent: parent.clone(),
-                                        name,
-                                        dir,
-                                    });
-                                }
-                                return widget::text_input::focus(self.dialog_text_input.clone());
-                            }
-                        }
-                    }
-                }
-            }
+            Message::Rename(entity_opt) => self.rename(entity_opt),
             Message::RenameWithPattern(entity_opt, pattern, start_val, numdigits) => {
-                let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
-                if let Some(tab) = self.tab_model.data_mut::<Tab>(entity) {
-                    if let Location::Path(_parent) = &tab.location {
-                        if let Some(items) = tab.items_opt() {
-                            let mut selected = Vec::new();
-                            for item in items.iter() {
-                                if item.selected {
-                                    if item.video_opt.is_some() {
-                                        continue;
-                                    }
-                                    if let Some(Location::Path(path)) = &item.location_opt {
-                                        selected.push(path.clone());
-                                    }
-                                }
-                            }
-                            let _joinhandle = std::thread::spawn(move || {
-                                crate::cmd::rename_with_pattern(
-                                    selected, pattern, start_val, numdigits,
-                                )
-                            });
-                        }
-                    }
-                }
+                self.rename_with_pattern(entity_opt, pattern, start_val, numdigits)
             }
-            Message::ReplaceResult(replace_result) => {
-                if let Some(dialog_page) = self.dialog_pages.pop_front() {
-                    match dialog_page {
-                        DialogPage::Replace { tx, .. } => {
-                            return Task::perform(
-                                async move {
-                                    let _ = tx.send(replace_result).await;
-                                    message::none()
-                                },
-                                |x| x,
-                            );
-                        }
-                        other => {
-                            log::warn!("tried to send replace result to the wrong dialog");
-                            self.dialog_pages.push_front(other);
-                        }
-                    }
-                }
-            }
-            Message::RestoreFromTrash(entity_opt) => {
-                let mut trash_items = Vec::new();
-                let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
-                if let Some(tab) = self.tab_model.data_mut::<Tab>(entity) {
-                    if let Some(items) = tab.items_opt() {
-                        for item in items.iter() {
-                            if item.selected {
-                                match &item.metadata {
-                                    ItemMetadata::Trash { entry, .. } => {
-                                        trash_items.push(entry.clone());
-                                    }
-                                    _ => {
-                                        //TODO: error on trying to restore non-trash file?
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                if !trash_items.is_empty() {
-                    self.operation(Operation::Restore { items: trash_items });
-                }
-            }
-            Message::SearchActivate => {
-                return if self.search_get().is_none() {
-                    self.search_set(Some(String::new()))
-                } else {
-                    widget::text_input::focus(self.search_id.clone())
-                };
-            }
-            Message::SearchClear => {
-                return self.search_set(None);
-            }
-            Message::SearchInput(input) => {
-                return self.search_set(Some(input));
-            }
-            Message::SearchStart => {
-                self.search = crate::sql::SearchData {
-                    ..Default::default()
-                };
-                self.search_previous.clear();
-                self.search_previous
-                    .extend(crate::sql::searches(self.sql_connection.clone()));
-                for s in self.search_previous.iter() {
-                    self.search_previous_str.push(s.display());
-                }
-                self.context_page = ContextPage::Search;
-                self.core.window.show_context = true;
-            }
-            Message::SearchPreviousPick(pos) => {
-                self.search_previous_pos = pos;
-            }
-            Message::SearchPreviousSelect => {
-                let search = self.search_previous[self.search_previous_pos].clone();
-                self.search = search.clone();
-            }
-            Message::SearchPreviousDelete => {
-                let search = self.search_previous[self.search_previous_pos].clone();
-                self.search_previous_str.remove(self.search_previous_pos);
-                self.search_previous.remove(self.search_previous_pos);
-                crate::sql::delete_search(self.sql_connection.clone(), search);
-            }
-            Message::SearchImages(is_checked) => {
-                self.search.search_id = 0;
-                self.search.image = is_checked;
-            }
-            Message::SearchVideos(is_checked) => {
-                self.search.search_id = 0;
-                self.search.video = is_checked;
-            }
-            Message::SearchAudios(is_checked) => {
-                self.search.search_id = 0;
-                self.search.audio = is_checked;
-            }
-            Message::SearchSearchString(input) => {
-                self.search.search_id = 0;
-                self.search.search_string = input.clone();
-            }
-            Message::SearchSearchStringSubmit => {
-                self.search.search_id = 0;
-                log::warn!("{}", self.search.search_string);
-            }
-            Message::SearchSearchFromString(input) => {
-                self.search.search_id = 0;
-                self.search.from_string = input.clone();
-            }
-            Message::SearchSearchFromStringSubmit => {
-                self.search.search_id = 0;
-                log::warn!("{}", self.search.from_string);
-                let lt = crate::sql::string_to_linux_time(&self.search.from_string);
-                if lt > 0 {
-                    self.search.from_date = lt as i64;
-                }
-                match self.search.from_string.parse::<f32>() {
-                    Ok(float) => self.search.from_value = (float * 1000000.0) as u64,
-                    Err(_) => {}
-                }
-            }
-            Message::SearchSearchToString(input) => {
-                self.search.search_id = 0;
-                self.search.to_string = input.clone();
-            }
-            Message::SearchSearchToStringSubmit => {
-                self.search.search_id = 0;
-                log::warn!("{}", self.search.to_string);
-                let lt = crate::sql::string_to_linux_time(&self.search.to_string);
-                if lt > 0 {
-                    self.search.to_date = lt as i64;
-                }
-                match self.search.to_string.parse::<f32>() {
-                    Ok(float) => self.search.to_value = (float * 1000000.0) as u64,
-                    Err(_) => {}
-                }
-            }
-            Message::SearchSearchFromValue(input) => {
-                self.search.search_id = 0;
-                self.search.from_value_string = input.clone();
-                let float = crate::parsers::string_to_float(&self.search.from_value_string);
-                self.search.from_value = (float * 1000000.0) as u64;
-            }
-            Message::SearchSearchFromValueSubmit => {
-                self.search.search_id = 0;
-                log::warn!("{}", self.search.search_string);
-            }
-            Message::SearchSearchToValue(input) => {
-                self.search.search_id = 0;
-                self.search.to_value_string = input.clone();
-                let float = crate::parsers::string_to_float(&self.search.to_value_string);
-                self.search.to_value = (float * 1000000.0) as u64;
-            }
-            Message::SearchSearchToValueSubmit => {
-                self.search.search_id = 0;
-                log::warn!("{}", self.search.to_value);
-            }
-            Message::SearchFilepath(is_checked) => {
-                self.search.search_id = 0;
-                self.search.filepath = is_checked;
-            }
-            Message::SearchTitle(is_checked) => {
-                self.search.search_id = 0;
-                self.search.title = is_checked;
-            }
-            Message::SearchTag(is_checked) => {
-                self.search.search_id = 0;
-                self.search.tags = is_checked;
-            }
-            Message::SearchDescription(is_checked) => {
-                self.search.search_id = 0;
-                self.search.description = is_checked;
-                if !self.search.video {
-                    self.search.video = true;
-                }
-            }
-            Message::SearchActor(is_checked) => {
-                self.search.search_id = 0;
-                self.search.actor = is_checked;
-                if !self.search.video {
-                    self.search.video = true;
-                }
-            }
-            Message::SearchDirector(is_checked) => {
-                self.search.search_id = 0;
-                self.search.director = is_checked;
-                if !self.search.video {
-                    self.search.video = true;
-                }
-            }
-            Message::SearchArtist(is_checked) => {
-                self.search.search_id = 0;
-                self.search.artist = is_checked;
-                if !self.search.audio {
-                    self.search.audio = true;
-                }
-            }
-            Message::SearchAlbumartist(is_checked) => {
-                self.search.search_id = 0;
-                self.search.album_artist = is_checked;
-                if !self.search.audio {
-                    self.search.audio = true;
-                }
-            }
-            Message::SearchAlbum(is_checked) => {
-                self.search.search_id = 0;
-                self.search.album = is_checked;
-                if !self.search.audio {
-                    self.search.audio = true;
-                }
-            }
-            Message::SearchComposer(is_checked) => {
-                self.search.search_id = 0;
-                self.search.composer = is_checked;
-                if !self.search.audio {
-                    self.search.audio = true;
-                }
-            }
-            Message::SearchGenre(is_checked) => {
-                self.search.search_id = 0;
-                self.search.genre = is_checked;
-                if !self.search.audio {
-                    self.search.audio = true;
-                }
-            }
-            Message::SearchDuration(is_checked) => {
-                self.search.search_id = 0;
-                self.search.duration = is_checked;
-            }
-            Message::SearchCreationDate(is_checked) => {
-                self.search.search_id = 0;
-                self.search.creation_date = is_checked;
-            }
+            Message::ReplaceResult(replace_result) => self.replace_result(replace_result),
+            Message::RestoreFromTrash(entity_opt) => self.restore_from_trash(entity_opt),
+            Message::SearchActivate => self.search_activate(),
+            Message::SearchClear => self.search_clear(),
+            Message::SearchInput(input) => self.search_input(input),
+            Message::SearchStart => self.search_start(),
+            Message::SearchPreviousPick(pos) => self.search_previous_pick(pos),
+            Message::SearchPreviousSelect => self.search_previous_select(),
+            Message::SearchPreviousDelete => self.search_previous_delete(),
+            Message::SearchImages(is_checked) => self.search_images(is_checked),
+            Message::SearchVideos(is_checked) => self.search_videos(is_checked),
+            Message::SearchAudios(is_checked) => self.search_audios(is_checked),
+            Message::SearchSearchString(input) => self.search_search_string(input),
+            Message::SearchSearchStringSubmit => self.search_search_string_submit(),
+            Message::SearchSearchFromString(input) => self.search_search_from_string(input),
+            Message::SearchSearchFromStringSubmit => self.search_search_from_string_submit(),
+            Message::SearchSearchToString(input) => self.search_search_to_string(input),
+            Message::SearchSearchToStringSubmit => self.search_search_to_string_submit(),
+            Message::SearchSearchFromValue(input) => self.search_search_from_value(input),
+            Message::SearchSearchFromValueSubmit => self.search_search_from_value_submit(),
+            Message::SearchSearchToValue(input) => self.search_search_to_value(input),
+            Message::SearchSearchToValueSubmit => self.search_search_to_value_submit(),
+            Message::SearchFilepath(is_checked) => self.search_filepath(is_checked),
+            Message::SearchTitle(is_checked) => self.search_title(is_checked),
+            Message::SearchTag(is_checked) => self.search_tag(is_checked),
+            Message::SearchDescription(is_checked) => self.search_description(is_checked),
+            Message::SearchActor(is_checked) => self.search_actor(is_checked),
+            Message::SearchDirector(is_checked) => self.search_director(is_checked),
+            Message::SearchArtist(is_checked) => self.search_artist(is_checked),
+            Message::SearchAlbumartist(is_checked) => self.search_albumartist(is_checked),
+            Message::SearchAlbum(is_checked) => self.search_album(is_checked),
+            Message::SearchComposer(is_checked) => self.search_composer(is_checked),
+            Message::SearchGenre(is_checked) => self.search_genre(is_checked),
+            Message::SearchDuration(is_checked) => self.search_duration(is_checked),
+            Message::SearchCreationDate(is_checked) => self.search_creation_date(is_checked),
             Message::SearchModificationDate(is_checked) => {
-                self.search.search_id = 0;
-                self.search.modification_date = is_checked;
+                self.search_modification_date(is_checked)
             }
-            Message::SearchReleaseDate(is_checked) => {
-                self.search.search_id = 0;
-                self.search.release_date = is_checked;
-            }
-            Message::SearchLenseModel(is_checked) => {
-                self.search.search_id = 0;
-                self.search.lense_model = is_checked;
-                if !self.search.image {
-                    self.search.image = true;
-                }
-            }
-            Message::SearchFocalLength(is_checked) => {
-                self.search.search_id = 0;
-                self.search.focal_length = is_checked;
-                if !self.search.image {
-                    self.search.image = true;
-                }
-            }
-            Message::SearchExposureTime(is_checked) => {
-                self.search.search_id = 0;
-                self.search.exposure_time = is_checked;
-                if !self.search.image {
-                    self.search.image = true;
-                }
-            }
-            Message::SearchFNumber(is_checked) => {
-                self.search.search_id = 0;
-                self.search.fnumber = is_checked;
-                if !self.search.image {
-                    self.search.image = true;
-                }
-            }
-            Message::SearchGpsLatitude(is_checked) => {
-                self.search.search_id = 0;
-                self.search.gps_latitude = is_checked;
-                if !self.search.image {
-                    self.search.image = true;
-                }
-            }
-            Message::SearchGpsLongitude(is_checked) => {
-                self.search.search_id = 0;
-                self.search.gps_longitude = is_checked;
-                if !self.search.image {
-                    self.search.image = true;
-                }
-            }
-            Message::SearchGpsAltitude(is_checked) => {
-                self.search.search_id = 0;
-                self.search.gps_altitude = is_checked;
-                if !self.search.image {
-                    self.search.image = true;
-                }
-            }
-            Message::SearchCommit => {
-                let mut s = self.search.clone();
-                for s2 in self.search_previous.iter() {
-                    if &s == s2 {
-                        s.search_id = s2.search_id;
-                    }
-                }
-                if s.search_id == 0 {
-                    s.store(self.sql_connection.clone());
-                    self.search_previous.push(s.clone());
-                }
-                self.search = s.clone();
-                let location = Location::DBSearch(s);
-                let (parent_item_opt, items) =
-                    location.scan(self.sql_connection.clone(), IconSizes::default());
-                let (entity, command) = self.open_tab_entity(location, true, None);
-                if let Some(tab) = self.tab_model.data_mut::<Tab>(entity) {
-                    tab.parent_item_opt = parent_item_opt;
-                    tab.set_items(items);
-                }
-                return command;
-            }
-            Message::SeekBackward => {
-                if self.active_view == Mode::Video {
-                    let position = self.video_view.position;
-                    let adjustment;
-                    if position < 10.0 {
-                        adjustment = 0.0;
-                    } else {
-                        adjustment = position - 10.0;
-                    }
-                    let _ = self.update(Message::VideoMessage(
-                        crate::video::video_view::Message::Seek(adjustment),
-                    ));
-                } else if self.active_view == Mode::Audio {
-                    let position = self.audio_view.position;
-                    let adjustment;
-                    if position < 10.0 {
-                        adjustment = 0.0;
-                    } else {
-                        adjustment = position - 10.0;
-                    }
-                    let _ = self.update(Message::AudioMessage(
-                        crate::audio::audio_view::Message::Seek(adjustment),
-                    ));
-                }
-            }
-            Message::SeekForward => {
-                if self.active_view == Mode::Video {
-                    let position = self.video_view.position;
-                    let adjustment;
-                    if position + 10.0 > self.video_view.duration {
-                        adjustment = 0.0;
-                    } else {
-                        adjustment = position + 10.0;
-                    }
-                    let _ = self.update(Message::VideoMessage(
-                        crate::video::video_view::Message::Seek(adjustment),
-                    ));
-                } else if self.active_view == Mode::Audio {
-                    let position = self.audio_view.position;
-                    let adjustment;
-                    if position + 10.0 > self.audio_view.duration {
-                        adjustment = 0.0;
-                    } else {
-                        adjustment = position + 10.0;
-                    }
-                    let _ = self.update(Message::AudioMessage(
-                        crate::audio::audio_view::Message::Seek(adjustment),
-                    ));
-                }
-            }
-            Message::SkipToPosition(seconds) => {
-                if self.active_view == Mode::Video {
-                    let position = self.video_view.position;
-                    let adjustment = seconds - position;
-                    let _ = self.update(Message::VideoMessage(
-                        crate::video::video_view::Message::Seek(adjustment),
-                    ));
-                } else if self.active_view == Mode::Audio {
-                    let position = self.audio_view.position;
-                    let adjustment = seconds - position;
-                    let _ = self.update(Message::AudioMessage(
-                        crate::audio::audio_view::Message::Seek(adjustment),
-                    ));
-                }
-            }
-            Message::SetShowDetails(show_details) => {
-                config_set!(show_details, show_details);
-                return self.update_config();
-            }
+            Message::SearchReleaseDate(is_checked) => self.search_release_date(is_checked),
+            Message::SearchLenseModel(is_checked) => self.search_lense_model(is_checked),
+            Message::SearchFocalLength(is_checked) => self.search_focal_length(is_checked),
+            Message::SearchExposureTime(is_checked) => self.search_exposure_time(is_checked),
+            Message::SearchFNumber(is_checked) => self.search_f_number(is_checked),
+            Message::SearchGpsLatitude(is_checked) => self.search_gps_latitude(is_checked),
+            Message::SearchGpsLongitude(is_checked) => self.search_gps_longitude(is_checked),
+            Message::SearchGpsAltitude(is_checked) => self.search_gps_altitude(is_checked),
+            Message::SearchCommit => self.search_commit(),
+            Message::SeekBackward => self.seek_backward(),
+            Message::SeekForward => self.seek_forward(),
+            Message::SkipToPosition(seconds) => self.skip_to_position(seconds),
+            Message::SetShowDetails(show_details) => self.set_show_details(show_details),
             Message::SystemThemeModeChange(_theme_mode) => {
-                return self.update_config();
+                self.system_theme_mode_change(_theme_mode)
             }
-            Message::TabActivate(entity) => {
-                self.tab_model.activate(entity);
-
-                if let Some(tab) = self.tab_model.data::<Tab>(entity) {
-                    self.activate_nav_model_location(&tab.location.clone());
-                }
-                return self.update_title();
-            }
-            Message::TabNext => {
-                let len = self.tab_model.iter().count();
-                let pos = self
-                    .tab_model
-                    .position(self.tab_model.active())
-                    // Wraparound to 0 if i + 1 > num of tabs
-                    .map(|i| (i as usize + 1) % len)
-                    .expect("should always be at least one tab open");
-
-                let entity = self.tab_model.iter().nth(pos);
-                if let Some(entity) = entity {
-                    return self.update(Message::TabActivate(entity));
-                }
-            }
-            Message::TabPrev => {
-                let pos = self
-                    .tab_model
-                    .position(self.tab_model.active())
-                    .and_then(|i| (i as usize).checked_sub(1))
-                    // Subtraction underflow => last tab; i.e. it wraps around
-                    .unwrap_or_else(|| {
-                        self.tab_model
-                            .iter()
-                            .count()
-                            .checked_sub(1)
-                            .unwrap_or_default()
-                    });
-
-                let entity = self.tab_model.iter().nth(pos);
-                if let Some(entity) = entity {
-                    return self.update(Message::TabActivate(entity));
-                }
-            }
-            Message::TabClose(entity_opt) => {
-                let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
-
-                // Activate closest item
-                if let Some(position) = self.tab_model.position(entity) {
-                    let new_position = if position > 0 {
-                        position - 1
-                    } else {
-                        position + 1
-                    };
-
-                    if self.tab_model.activate_position(new_position) {
-                        if let Some(new_entity) = self.tab_model.entity_at(new_position) {
-                            if let Some(tab) = self.tab_model.data::<Tab>(new_entity) {
-                                self.activate_nav_model_location(&tab.location.clone());
-                            }
-                        }
-                    }
-                }
-
-                // Remove item
-                self.tab_model.remove(entity);
-
-                // If that was the last tab, close window
-                if self.tab_model.iter().next().is_none() {
-                    if let Some(window_id) = &self.window_id_opt {
-                        return window::close(*window_id);
-                    }
-                }
-
-                return Task::batch([self.update_title(), self.update_watcher()]);
-            }
-            Message::TabConfig(config) => {
-                if config != self.config.tab {
-                    config_set!(tab, config);
-                    return self.update_config();
-                }
-            }
-            Message::ToggleFoldersFirst => {
-                let mut config = self.config.tab;
-                config.folders_first = !config.folders_first;
-                return self.update(Message::TabConfig(config));
-            }
+            Message::TabActivate(entity) => self.tab_activate(entity),
+            Message::TabNext => self.tab_next(),
+            Message::TabPrev => self.tab_prev(),
+            Message::TabClose(entity_opt) => self.tab_close(entity_opt),
+            Message::TabConfig(config) => self.tab_config(config),
+            Message::ToggleFoldersFirst => self.toggle_folders_first(),
             Message::TabMessage(entity_opt, tab_message) => {
-                let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
-
-                //TODO: move to Task?
-                //if let tab::Message::ContextMenu(_point_opt) = tab_message {
-                // Disable side context page
-                //    self.set_show_context(false);
-                //}
-
-                let tab_commands = match self.tab_model.data_mut::<Tab>(entity) {
-                    Some(tab) => tab.update(tab_message, self.modifiers),
-                    _ => Vec::new(),
-                };
-
-                let mut commands = Vec::new();
-                for tab_command in tab_commands {
-                    match tab_command {
-                        tab::Command::Action(action) => {
-                            commands.push(self.update(action.message(Some(entity))));
-                        }
-                        tab::Command::AddNetworkDrive => {
-                            self.context_page = ContextPage::NetworkDrive;
-                            self.set_show_context(true);
-                        }
-                        tab::Command::AddToSidebar(path) => {
-                            let mut favorites = self.config.favorites.clone();
-                            let favorite = Favorite::from_path(path);
-                            if !favorites.iter().any(|f| f == &favorite) {
-                                favorites.push(favorite);
-                            }
-                            config_set!(favorites, favorites);
-                            commands.push(self.update_config());
-                        }
-                        tab::Command::ChangeLocation(tab_title, tab_path, selection_paths) => {
-                            self.activate_nav_model_location(&tab_path);
-
-                            self.tab_model.text_set(entity, tab_title);
-                            commands.push(Task::batch([
-                                self.update_title(),
-                                self.update_watcher(),
-                                self.rescan_tab(entity, tab_path, selection_paths),
-                            ]));
-                        }
-                        tab::Command::DropFiles(to, from) => {
-                            commands.push(self.update(Message::PasteContents(to, from)));
-                        }
-                        tab::Command::EmptyTrash => {
-                            self.dialog_pages.push_back(DialogPage::EmptyTrash);
-                        }
-                        tab::Command::Iced(iced_command) => {
-                            commands.push(iced_command.0.map(move |tab_message| {
-                                message::app(Message::TabMessage(Some(entity), tab_message))
-                            }));
-                        }
-                        tab::Command::MoveToTrash(paths) => {
-                            self.operation(Operation::Delete { paths });
-                        }
-                        tab::Command::Open(filepath) => {
-                            return match self.open_path(filepath) {
-                                Some(command) => command,
-                                _ => Task::none(),
-                            };
-                        }
-                        tab::Command::OpenInExternalApp(path) => {
-                            let mut found_desktop_exec = false;
-                            if mime_icon::mime_for_path(&path) == "application/x-desktop" {
-                                match freedesktop_entry_parser::parse_entry(&path) {
-                                    Ok(entry) => {
-                                        match entry.section("Desktop Entry").attr("Exec") {
-                                            Some(exec) => {
-                                                match mime_app::exec_to_command(exec, None) {
-                                                    Some(mut command) => {
-                                                        match spawn_detached(&mut command) {
-                                                            Ok(()) => {
-                                                                found_desktop_exec = true;
-                                                            }
-                                                            Err(err) => {
-                                                                log::warn!(
-                                                                    "failed to execute {:?}: {}",
-                                                                    path,
-                                                                    err
-                                                                );
-                                                            }
-                                                        }
-                                                    }
-                                                    None => {
-                                                        log::warn!("failed to parse {:?}: invalid Desktop Entry/Exec", path);
-                                                    }
-                                                }
-                                            }
-                                            None => {
-                                                log::warn!("failed to parse {:?}: missing Desktop Entry/Exec", path);
-                                            }
-                                        }
-                                    }
-                                    Err(err) => {
-                                        log::warn!("failed to parse {:?}: {}", path, err);
-                                    }
-                                };
-                            }
-                            if !found_desktop_exec {
-                                match open::that_detached(&path) {
-                                    Ok(()) => {
-                                        let _ = recently_used_xbel::update_recently_used(
-                                            &path,
-                                            App::APP_ID.to_string(),
-                                            "cosmic-media-Tab".to_string(),
-                                            None,
-                                        );
-                                    }
-                                    Err(err) => {
-                                        log::warn!("failed to open {:?}: {}", path, err);
-                                    }
-                                }
-                            }
-                        }
-                        tab::Command::OpenInNewWindow(path) => match env::current_exe() {
-                            Ok(exe) => match process::Command::new(&exe).arg(path).spawn() {
-                                Ok(_child) => {}
-                                Err(err) => {
-                                    log::error!("failed to execute {:?}: {}", exe, err);
-                                }
-                            },
-                            Err(err) => {
-                                log::error!("failed to get current executable path: {}", err);
-                            }
-                        },
-                        tab::Command::OpenTrash => {
-                            //TODO: use handler for x-scheme-handler/trash and open trash:///
-                            let mut command = process::Command::new("cosmic-files");
-                            command.arg("--trash");
-                            match spawn_detached(&mut command) {
-                                Ok(()) => {}
-                                Err(err) => {
-                                    log::warn!("failed to run cosmic-files --trash: {}", err)
-                                }
-                            }
-                        }
-                        tab::Command::Preview(kind) => {
-                            self.context_page = ContextPage::Preview(Some(entity), kind);
-                            self.set_show_context(true);
-                        }
-                        tab::Command::WindowDrag => {
-                            if let Some(window_id) = &self.window_id_opt {
-                                commands.push(window::drag(*window_id));
-                            }
-                        }
-                        tab::Command::WindowToggleMaximize => {
-                            if let Some(window_id) = &self.window_id_opt {
-                                commands.push(window::toggle_maximize(*window_id));
-                            }
-                        }
-                    }
-                }
-                return Task::batch(commands);
+                self.tab_message(entity_opt, tab_message)
             }
-            Message::TabNew => {
-                let active = self.tab_model.active();
-                let location = match self.tab_model.data::<Tab>(active) {
-                    Some(tab) => tab.location.clone(),
-                    None => Location::Path(home_dir()),
-                };
-                let _ = self.open_tab_entity(location, true, None);
-            }
+            Message::TabNew => self.tab_new(),
             Message::TabRescan(entity, location, parent_item_opt, items, selection_paths) => {
-                match self.tab_model.data_mut::<Tab>(entity) {
-                    Some(tab) => {
-                        if location == tab.location {
-                            tab.parent_item_opt = parent_item_opt;
-                            tab.set_items(items);
-                            if let Some(selection_paths) = selection_paths {
-                                tab.select_paths(selection_paths);
-                            }
-                        }
-                    }
-                    _ => (),
-                }
+                self.tab_rescan(entity, location, parent_item_opt, items, selection_paths)
             }
-            Message::TabView(entity_opt, view) => {
-                let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
-                if let Some(tab) = self.tab_model.data_mut::<Tab>(entity) {
-                    tab.config.view = view;
-                }
-                let mut config = self.config.tab;
-                config.view = view;
-                return self.update(Message::TabConfig(config));
-            }
-            Message::ToggleContextPage(context_page) => {
-                //TODO: ensure context menus are closed
-                if self.context_page == context_page {
-                    self.set_show_context(!self.core.window.show_context);
-                } else {
-                    self.set_show_context(true);
-                }
-                self.context_page = context_page;
-            }
-            Message::Undo(_id) => {
-                // TODO: undo
-            }
+            Message::TabView(entity_opt, view) => self.tab_view(entity_opt, view),
+            Message::ToggleContextPage(context_page) => self.toggle_context_page(context_page),
+            Message::Undo(_id) => self.undo(_id),
             Message::UndoTrash(id, recently_trashed) => {
                 self.toasts.remove(id);
 
@@ -5245,436 +2886,31 @@ impl Application for App {
             }
             Message::UndoTrashStart(items) => {
                 self.operation(Operation::Restore { items });
+                Task::none()
             }
-            Message::VideoMessage(video_message) => match video_message {
-                crate::video::video_view::Message::ToBrowser => {
-                    self.active_view = Mode::Browser;
-                    self.view();
-                }
-                crate::video::video_view::Message::Open(videopath) => {
-                    match url::Url::from_file_path(std::path::PathBuf::from(&videopath)) {
-                        Ok(url) => {
-                            self.video_view.videopath_opt = Some(url);
-                            self.video_view.load();
-                            self.active_view = Mode::Video;
-                            self.view();
-                        }
-                        _ => {}
-                    }
-                }
-                crate::video::video_view::Message::NextFile => {
-                    // open next file in the sorted list if possible
-                    let id = self.tab_model.active();
-                    if id != self.tab_model_id {
-                        self.tab_model_id = id;
-                    }
-                    if let Some(tab) = self.tab_model.data_mut::<Tab>(self.tab_model_id) {
-                        let _ret = tab.update(tab::Message::ItemRight, self.modifiers);
-                        if let Some(path) = tab.selected_file_paths().into_iter().next() {
-                            return match self.open_path(path) {
-                                Some(command) => command,
-                                _ => Task::none(),
-                            };
-                        }
-                    }
-                }
-                crate::video::video_view::Message::PreviousFile => {
-                    // open next file in the sorted list if possible
-                    let id = self.tab_model.active();
-                    if id != self.tab_model_id {
-                        self.tab_model_id = id;
-                    }
-                    if let Some(tab) = self.tab_model.data_mut::<Tab>(self.tab_model_id) {
-                        let _ret = tab.update(tab::Message::ItemLeft, self.modifiers);
-                        if let Some(path) = tab.selected_file_paths().into_iter().next() {
-                            return match self.open_path(path) {
-                                Some(command) => command,
-                                _ => Task::none(),
-                            };
-                        }
-                    }
-                }
-                crate::video::video_view::Message::FileClose => {
-                    self.video_view.close();
-                }
-                crate::video::video_view::Message::FileLoad(url) => {
-                    self.video_view.videopath_opt = Some(url);
-                    self.video_view.load();
-                }
-                crate::video::video_view::Message::FileOpen => {
-                    //TODO: embed cosmic-files dialog (after libcosmic rebase works)
-                }
-                crate::video::video_view::Message::DropdownToggle(menu_kind) => {
-                    if self.video_view.dropdown_opt.take() != Some(menu_kind) {
-                        self.video_view.dropdown_opt = Some(menu_kind);
-                    }
-                }
-                crate::video::video_view::Message::Fullscreen => {
-                    //TODO: cleanest way to close dropdowns
-                    self.video_view.dropdown_opt = None;
+            Message::VideoMessage(video_message) => self.video_message(video_message),
+            Message::WindowClose => self.window_close(),
+            Message::WindowNew => self.window_new(),
+            Message::ZoomDefault(entity_opt) => self.zoom_default(entity_opt),
+            Message::ZoomIn(entity_opt) => self.zoom_in(entity_opt),
+            Message::ZoomOut(entity_opt) => self.zoom_out(entity_opt),
+            Message::DndEnterNav(entity) => self.dnd_enter_nav(entity),
+            Message::DndExitNav => self.dnd_exit_nav(),
+            Message::DndDropNav(entity, data, action) => self.dnd_drop_nav(entity, data, action),
+            Message::DndHoverLocTimeout(location) => self.dnd_hover_loc_timeout(location),
+            Message::DndEnterTab(entity) => self.dnd_enter_tab(entity),
+            Message::DndExitTab => self.dnd_exit_tab(),
+            Message::DndDropTab(entity, data, action) => self.dnd_drop_tab(entity, data, action),
+            Message::DndHoverTabTimeout(entity) => self.dnd_hover_tab_timeout(entity),
 
-                    self.video_view.fullscreen = !self.video_view.fullscreen;
-                    self.core.window.show_headerbar = !self.video_view.fullscreen;
-                    return window::change_mode(
-                        window::Id::RESERVED,
-                        if self.video_view.fullscreen {
-                            window::Mode::Fullscreen
-                        } else {
-                            window::Mode::Windowed
-                        },
-                    );
-                }
-                crate::video::video_view::Message::AudioCode(code) => {
-                    if let Ok(code) = i32::try_from(code) {
-                        if let Some(video) = &self.video_view.video_opt {
-                            let pipeline = video.pipeline();
-                            pipeline.set_property("current-audio", code);
-                            self.video_view.current_audio = pipeline.property("current-audio");
-                        }
-                    }
-                }
-                crate::video::video_view::Message::AudioToggle => {
-                    if let Some(video) = &mut self.video_view.video_opt {
-                        video.set_muted(!video.muted());
-                        self.video_view.update_controls(true);
-                    }
-                }
-                crate::video::video_view::Message::AudioVolume(volume) => {
-                    if let Some(video) = &mut self.video_view.video_opt {
-                        video.set_volume(volume);
-                        self.video_view.update_controls(true);
-                    }
-                }
-                crate::video::video_view::Message::TextCode(code) => {
-                    if let Ok(code) = i32::try_from(code) {
-                        if let Some(video) = &self.video_view.video_opt {
-                            let pipeline = video.pipeline();
-                            pipeline.set_property("current-text", code);
-                            self.video_view.current_text = pipeline.property("current-text");
-                        }
-                    }
-                }
-                crate::video::video_view::Message::ShowControls => {
-                    self.video_view.update_controls(true);
-                }
-                _ => self.video_view.update(video_message),
-            },
-            Message::WindowClose => {
-                if let Some(window_id) = self.window_id_opt.take() {
-                    return Task::batch([
-                        window::close(window_id),
-                        Task::perform(async move { message::app(Message::MaybeExit) }, |x| x),
-                    ]);
-                }
-            }
-            Message::WindowNew => match env::current_exe() {
-                Ok(exe) => match process::Command::new(&exe).spawn() {
-                    Ok(_child) => {}
-                    Err(err) => {
-                        log::error!("failed to execute {:?}: {}", exe, err);
-                    }
-                },
-                Err(err) => {
-                    log::error!("failed to get current executable path: {}", err);
-                }
-            },
-            Message::ZoomDefault(entity_opt) => {
-                if self.active_view == Mode::Browser || self.active_view == Mode::App {
-                    let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
-                    let mut config = self.config.tab;
-                    if let Some(tab) = self.tab_model.data::<Tab>(entity) {
-                        match tab.config.view {
-                            tab::View::List => config.icon_sizes.list = 100.try_into().unwrap(),
-                            tab::View::Grid => config.icon_sizes.grid = 100.try_into().unwrap(),
-                        }
-                    }
-                    return self.update(Message::TabConfig(config));
-                } else if self.active_view == Mode::Image {
-                }
-            }
-            Message::ZoomIn(entity_opt) => {
-                let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
-                let zoom_in = |size: &mut NonZeroU16, min: u16, max: u16| {
-                    let mut step = min;
-                    while step <= max {
-                        if size.get() < step {
-                            *size = step.try_into().unwrap();
-                            break;
-                        }
-                        step += 25;
-                    }
-                    if size.get() > step {
-                        *size = step.try_into().unwrap();
-                    }
-                };
-                let mut config = self.config.tab;
-                if let Some(tab) = self.tab_model.data::<Tab>(entity) {
-                    match tab.config.view {
-                        tab::View::List => zoom_in(&mut config.icon_sizes.list, 50, 500),
-                        tab::View::Grid => zoom_in(&mut config.icon_sizes.grid, 50, 500),
-                    }
-                }
-                return self.update(Message::TabConfig(config));
-            }
-            Message::ZoomOut(entity_opt) => {
-                let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
-                let zoom_out = |size: &mut NonZeroU16, min: u16, max: u16| {
-                    let mut step = max;
-                    while step >= min {
-                        if size.get() > step {
-                            *size = step.try_into().unwrap();
-                            break;
-                        }
-                        step -= 25;
-                    }
-                    if size.get() < step {
-                        *size = step.try_into().unwrap();
-                    }
-                };
-                let mut config = self.config.tab;
-                if let Some(tab) = self.tab_model.data::<Tab>(entity) {
-                    match tab.config.view {
-                        tab::View::List => zoom_out(&mut config.icon_sizes.list, 50, 500),
-                        tab::View::Grid => zoom_out(&mut config.icon_sizes.grid, 50, 500),
-                    }
-                }
-                return self.update(Message::TabConfig(config));
-            }
-            Message::DndEnterNav(entity) => {
-                if let Some(location) = self.nav_model.data::<Location>(entity) {
-                    self.nav_dnd_hover = Some((location.clone(), Instant::now()));
-                    let location = location.clone();
-                    return Task::perform(tokio::time::sleep(HOVER_DURATION), move |_| {
-                        cosmic::app::Message::App(Message::DndHoverLocTimeout(location.clone()))
-                    });
-                }
-            }
-            Message::DndExitNav => {
-                self.nav_dnd_hover = None;
-            }
-            Message::DndDropNav(entity, data, action) => {
-                self.nav_dnd_hover = None;
-                if let Some((location, data)) = self.nav_model.data::<Location>(entity).zip(data) {
-                    let kind = match action {
-                        DndAction::Move => ClipboardKind::Cut,
-                        _ => ClipboardKind::Copy,
-                    };
-                    let ret = match location {
-                        Location::Path(p) => self.update(Message::PasteContents(
-                            p.clone(),
-                            ClipboardPaste {
-                                kind,
-                                paths: data.paths,
-                            },
-                        )),
-                        Location::Tag(t) => self.update(Message::AddTagToContents(
-                            t.clone(),
-                            ClipboardPaste {
-                                kind: ClipboardKind::Copy,
-                                paths: data.paths,
-                            },
-                        )),
-                        Location::Trash if matches!(action, DndAction::Move) => {
-                            self.operation(Operation::Delete { paths: data.paths });
-                            Task::none()
-                        }
-                        _ => {
-                            log::warn!("Copy to trash is not supported.");
-                            Task::none()
-                        }
-                    };
-                    return ret;
-                }
-            }
-            Message::DndHoverLocTimeout(location) => {
-                if self
-                    .nav_dnd_hover
-                    .as_ref()
-                    .is_some_and(|(loc, i)| *loc == location && i.elapsed() >= HOVER_DURATION)
-                {
-                    self.nav_dnd_hover = None;
-                    let entity = self.tab_model.active();
-                    let title_opt = match self.tab_model.data_mut::<Tab>(entity) {
-                        Some(tab) => {
-                            tab.change_location(&location, None);
-                            Some(tab.title())
-                        }
-                        None => None,
-                    };
-                    if let Some(title) = title_opt {
-                        self.tab_model.text_set(entity, title);
-                        return Task::batch([
-                            self.update_title(),
-                            self.update_watcher(),
-                            self.rescan_tab(entity, location, None),
-                        ]);
-                    }
-                }
-            }
-            Message::DndEnterTab(entity) => {
-                self.tab_dnd_hover = Some((entity, Instant::now()));
-                return Task::perform(tokio::time::sleep(HOVER_DURATION), move |_| {
-                    cosmic::app::Message::App(Message::DndHoverTabTimeout(entity))
-                });
-            }
-            Message::DndExitTab => {
-                self.nav_dnd_hover = None;
-            }
-            Message::DndDropTab(entity, data, action) => {
-                self.nav_dnd_hover = None;
-                if let Some((tab, data)) = self.tab_model.data::<Tab>(entity).zip(data) {
-                    let kind = match action {
-                        DndAction::Move => ClipboardKind::Cut,
-                        _ => ClipboardKind::Copy,
-                    };
-                    let ret = match &tab.location {
-                        Location::Path(p) => self.update(Message::PasteContents(
-                            p.clone(),
-                            ClipboardPaste {
-                                kind,
-                                paths: data.paths,
-                            },
-                        )),
-                        Location::Trash if matches!(action, DndAction::Move) => {
-                            self.operation(Operation::Delete { paths: data.paths });
-                            Task::none()
-                        }
-                        _ => {
-                            log::warn!("Copy to trash is not supported.");
-                            Task::none()
-                        }
-                    };
-                    return ret;
-                }
-            }
-            Message::DndHoverTabTimeout(entity) => {
-                if self
-                    .tab_dnd_hover
-                    .as_ref()
-                    .is_some_and(|(e, i)| *e == entity && i.elapsed() >= HOVER_DURATION)
-                {
-                    self.tab_dnd_hover = None;
-                    return self.update(Message::TabActivate(entity));
-                }
-            }
-
-            Message::NavBarClose(entity) => {
-                if let Some(data) = self.nav_model.data::<MounterData>(entity) {
-                    if let Some(mounter) = MOUNTERS.get(&data.0) {
-                        return mounter.unmount(data.1.clone()).map(|_| message::none());
-                    }
-                }
-            }
+            Message::NavBarClose(entity) => self.nav_bar_close(entity),
 
             // Tracks which nav bar item to show a context menu for.
-            Message::NavBarContext(entity) => {
-                // Close location editing if enabled
-                let tab_entity = self.tab_model.active();
-                if let Some(tab) = self.tab_model.data_mut::<Tab>(tab_entity) {
-                    tab.edit_location = None;
-                }
-
-                self.nav_bar_context_id = entity;
-            }
+            Message::NavBarContext(entity) => self.nav_bar_context(entity),
 
             // Applies selected nav bar context menu operation.
-            Message::NavMenuAction(action) => match action {
-                NavMenuAction::Open(entity) => {
-                    if let Some(location) = self.nav_model.data::<Location>(entity) {
-                        match location {
-                            Location::Path(path) => {
-                                let _ = self.update(Message::Open(
-                                    Some(entity),
-                                    crate::parsers::osstr_to_string(path.clone().into_os_string()),
-                                ));
-                            }
-                            Location::Tag(t) => {
-                                let _ = self.update(Message::LaunchSearch(
-                                    crate::sql::SearchType::Tag,
-                                    t.tag.clone(),
-                                ));
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-                NavMenuAction::OpenTag(entity) => {
-                    if let Some(location) = self.nav_model.data::<Location>(entity) {
-                        match location {
-                            Location::Tag(t) => {
-                                let _ = self.update(Message::LaunchSearch(
-                                    crate::sql::SearchType::Tag,
-                                    t.tag.clone(),
-                                ));
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-                NavMenuAction::RecursiveScanDirectories(entity) => {
-                    if let Some(location) = self.nav_model.data::<Location>(entity) {
-                        match location {
-                            Location::Path(p) => {
-                                let pathbuf = p.to_path_buf();
-                                let sql_connection = self.sql_connection.clone();
-                                let _joinhandle = std::thread::spawn(move || {
-                                    crate::tab::scan_path_recursive(sql_connection, pathbuf)
-                                });
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-                NavMenuAction::RemoveFromSidebar(entity) => {
-                    if let Some(FavoriteIndex(favorite_i)) =
-                        self.nav_model.data::<FavoriteIndex>(entity)
-                    {
-                        let mut favorites = self.config.favorites.clone();
-                        favorites.remove(*favorite_i);
-                        config_set!(favorites, favorites);
-                        return self.update_config();
-                    }
-                }
-                NavMenuAction::RemoveTagFromSidebar(entity) => {
-                    if let Some(FavoriteIndex(tag_i)) = self.nav_model.data::<FavoriteIndex>(entity)
-                    {
-                        let mut tags = self.config.tags.clone();
-                        crate::sql::delete_tag(
-                            self.sql_connection.clone(),
-                            tags[*tag_i].tag.clone(),
-                        );
-                        tags.remove(*tag_i);
-                        config_set!(tags, tags);
-                        return self.update_config();
-                    }
-                }
-
-                NavMenuAction::EmptyTrash => {
-                    self.dialog_pages.push_front(DialogPage::EmptyTrash);
-                }
-
-                NavMenuAction::Preview(entity) => {
-                    if let Some(path) = self
-                        .nav_model
-                        .data::<Location>(entity)
-                        .and_then(|location| location.path_opt())
-                    {
-                        match super::parsers::item_from_path(path, IconSizes::default()) {
-                            Ok(item) => {
-                                self.context_page = ContextPage::Preview(
-                                    None,
-                                    PreviewKind::Custom(PreviewItem(item)),
-                                );
-                                self.set_show_context(true);
-                            }
-                            Err(err) => {
-                                log::warn!("failed to get item from path {:?}: {}", path, err);
-                            }
-                        }
-                    }
-                }
-            },
-            Message::Recents => {}
+            Message::NavMenuAction(action) => self.nav_menu_action(action),
+            Message::Recents => Task::none(),
             #[cfg(feature = "wayland")]
             Message::OutputEvent(output_event, output) => {
                 match output_event {
@@ -5758,18 +2994,18 @@ impl Application for App {
                         log::info!("output {}: info update", output.id());
                     }
                 }
+                Task::none()
             }
             Message::Cosmic(cosmic) => {
                 // Forward cosmic messages
                 return Task::perform(async move { cosmic }, |cosmic| message::cosmic(cosmic));
             }
-            Message::None => {}
+            Message::None => Task::none(),
             Message::Size(size) => {
                 self.size = Some(size);
+                Task::none()
             }
         }
-
-        Task::none()
     }
 
     fn context_drawer(&self) -> Option<context_drawer::ContextDrawer<'_, Message>> {
@@ -6776,7 +4012,7 @@ impl Application for App {
                         not(target_os = "ios"),
                         not(target_os = "android")
                     ))]
-                    match (watcher_res, trash::os_limited::trash_folders()) {
+                    match (watcher_res, ::trash::os_limited::trash_folders()) {
                         (Ok(mut watcher), Ok(trash_bins)) => {
                             for path in trash_bins {
                                 if let Err(e) = watcher
@@ -6937,7 +4173,7 @@ impl Application for App {
 pub(crate) mod test_utils {
     use std::{
         cmp::Ordering,
-        fs::File,
+        fs::{self, File},
         io::{self, Write},
         iter,
         path::Path,
