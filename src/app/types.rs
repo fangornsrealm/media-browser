@@ -284,7 +284,7 @@ pub enum Message {
     MoveToTrash(Option<Entity>),
     MounterItems(MounterKey, MounterItems),
     MountResult(MounterKey, MounterItem, Result<bool, String>),
-    MouseScroll(cosmic::iced_core::mouse::ScrollDelta),
+    MouseScroll(cosmic::iced::core::mouse::ScrollDelta),
     NavBarClose(Entity),
     NavBarContext(Entity),
     NavMenuAction(NavMenuAction),

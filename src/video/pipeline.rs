@@ -7,8 +7,8 @@
 
 use cosmic::iced;
 use cosmic::iced::wgpu::PipelineCompilationOptions;
-use cosmic::iced_core::Rectangle;
-use cosmic::iced_wgpu::{self, primitive::Primitive, wgpu};
+use cosmic::iced::core::Rectangle;
+use iced_wgpu::{self, primitive::Primitive, wgpu};
 use std::{
     collections::{btree_map::Entry, BTreeMap},
     sync::{

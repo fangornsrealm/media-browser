@@ -4,14 +4,14 @@
 // Copyright 2024 Alexander Schwarzkopf
 
 use cosmic::{
+    Element,
     iced::{Alignment, Background, Border, Length},
     theme,
     widget::{
-        self, button, column, container, divider, horizontal_space,
-        menu::{self, key_bind::KeyBind, ItemHeight, ItemWidth, MenuBar},
-        text, Row,
+        self, Row, button, column, container, divider,
+        menu::{self, ItemHeight, ItemWidth, MenuBar, key_bind::KeyBind},
+        space, text,
     },
-    Element,
 };
 use mime_guess::Mime;
 use std::collections::HashMap;
@@ -53,7 +53,7 @@ pub fn context_menu<'a>(
 
     let menu_item = |label, action| {
         let key = find_key(&action);
-        menu_button!(text::body(label), horizontal_space(), text::body(key))
+        menu_button!(text::body(label), space::horizontal(), text::body(key))
             .on_press(tab::Message::ContextAction(action))
     };
 
@@ -582,11 +582,13 @@ pub fn menu_bar<'a>(
 }
 
 pub fn location_context_menu<'a>(ancestor_index: usize) -> Element<'a, tab::Message> {
-    let children = vec![menu_button!(text::body(fl!("open-in-new-window")))
-        .on_press(tab::Message::LocationMenuAction(
-            LocationMenuAction::OpenInNewWindow(ancestor_index),
-        ))
-        .into()];
+    let children = vec![
+        menu_button!(text::body(fl!("open-in-new-window")))
+            .on_press(tab::Message::LocationMenuAction(
+                LocationMenuAction::OpenInNewWindow(ancestor_index),
+            ))
+            .into(),
+    ];
 
     container(column::with_children(children))
         .padding(1)

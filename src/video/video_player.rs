@@ -16,7 +16,7 @@ use std::{marker::PhantomData, sync::atomic::Ordering, time::Duration};
 use std::{sync::Arc, time::Instant};
 
 use crate::video::pipeline::VideoPrimitive;
-use cosmic::iced_wgpu::primitive::Renderer as PrimitiveRenderer;
+use iced_wgpu::primitive::Renderer as PrimitiveRenderer;
 
 /// Video player widget which displays the current frame of a [`Video`](crate::Video).
 pub struct VideoPlayer<'a, Message, Theme = iced::Theme, Renderer = iced::Renderer>
@@ -383,7 +383,7 @@ where
         _viewport: &iced::Rectangle,
         _renderer: &Renderer,
     ) -> mouse::Interaction {
-        // let state = tree.state.downcast_ref::<cosmic::iced_core::widget::tree::State>();
+        // let state = tree.state.downcast_ref::<cosmic::iced::core::widget::tree::State>();
         let bounds = layout.bounds();
         let is_mouse_over = cursor_position.is_over(bounds);
 

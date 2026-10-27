@@ -7,13 +7,13 @@
 
 //! Zoom and pan on an image.
 use cosmic::iced;
-use cosmic::iced_core::event::{self, Event};
-use cosmic::iced_core::image;
-use cosmic::iced_core::layout;
-use cosmic::iced_core::mouse;
-use cosmic::iced_core::renderer;
-use cosmic::iced_core::widget::tree::{self, Tree};
-use cosmic::iced_core::{
+use cosmic::iced::core::event::{self, Event};
+use cosmic::iced::core::image;
+use cosmic::iced::core::layout;
+use cosmic::iced::core::mouse;
+use cosmic::iced::core::renderer;
+use cosmic::iced::core::widget::tree::{self, Tree};
+use cosmic::iced::core::{
     Clipboard, Element, Layout, Length, Pixels, Point, Rectangle, Shell, Size, Vector, Widget,
 };
 

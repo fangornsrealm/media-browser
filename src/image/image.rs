@@ -6,19 +6,19 @@
 // Copyright 2024 Alexander Schwarzkopf
 
 //! Display images in your user interface.
-use cosmic::iced_runtime::core::widget::Id;
+use cosmic::iced::runtime::core::widget::Id;
 
-//use cosmic::iced_core::image;
-use cosmic::iced_core::layout;
-use cosmic::iced_core::mouse;
-use cosmic::iced_core::renderer;
-use cosmic::iced_core::widget::Tree;
-use cosmic::iced_core::{ContentFit, Element, Layout, Length, Rectangle, Size, Vector, Widget};
+//use cosmic::iced::core::image;
+use cosmic::iced::core::layout;
+use cosmic::iced::core::mouse;
+use cosmic::iced::core::renderer;
+use cosmic::iced::core::widget::Tree;
+use cosmic::iced::core::{ContentFit, Element, Layout, Length, Rectangle, Size, Vector, Widget};
 use imagesize;
 
 use std::hash::Hash;
 
-pub use cosmic::iced_core::image::{FilterMethod, Handle};
+pub use cosmic::iced::core::image::{FilterMethod, Handle};
 
 pub use super::image_player::Viewer;
 
@@ -124,7 +124,7 @@ pub fn layout<Renderer, Handle>(
     _border_radius: [f32; 4],
 ) -> layout::Node
 where
-    Renderer: cosmic::iced_core::image::Renderer<Handle = Handle>,
+    Renderer: cosmic::iced::core::image::Renderer<Handle = Handle>,
 {
     // The raw w/h of the underlying image
     let image_size = {
@@ -163,7 +163,7 @@ pub fn draw<Renderer, Handle>(
     filter_method: FilterMethod,
     border_radius: [f32; 4],
 ) where
-    Renderer: cosmic::iced_core::image::Renderer<Handle = Handle>,
+    Renderer: cosmic::iced::core::image::Renderer<Handle = Handle>,
     Handle: Clone + Hash,
 {
     let Size { width, height } = renderer.measure_image(handle);
@@ -203,7 +203,7 @@ pub fn draw<Renderer, Handle>(
 
 impl<'a, Message, Theme, Renderer, Handle> Widget<Message, Theme, Renderer> for Image<'a, Handle>
 where
-    Renderer: cosmic::iced_core::image::Renderer<Handle = Handle>,
+    Renderer: cosmic::iced::core::image::Renderer<Handle = Handle>,
     Handle: Clone + Hash,
 {
     fn size(&self) -> Size<Length> {
@@ -262,7 +262,7 @@ where
 impl<'a, Message, Theme, Renderer, Handle> From<Image<'a, Handle>>
     for Element<'a, Message, Theme, Renderer>
 where
-    Renderer: cosmic::iced_core::image::Renderer<Handle = Handle>,
+    Renderer: cosmic::iced::core::image::Renderer<Handle = Handle>,
     Handle: Clone + Hash + 'a,
 {
     fn from(image: Image<'a, Handle>) -> Element<'a, Message, Theme, Renderer> {

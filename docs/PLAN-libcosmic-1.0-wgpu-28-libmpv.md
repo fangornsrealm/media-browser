@@ -10,10 +10,10 @@
 |------|-----------|--------|
 | 2026-06-17 | §1 Pre-flight (1.1–1.11) | 10 of 11 gates passed. **1.5 FAILED** (wgpu 28 has no Vulkan handle export). Full details in Appendix B. |
 | 2026-06-17 | §2 Toolchain preparation | ✅ rustc 1.96.1 ≥ 1.93. Edition 2024 + rust-version bump deferred (blocked). |
-| 2026-06-17 | §3 Dependency bump | ⏸️ Deferred — blocked by R1. |
-| 2026-06-17 | §4 iced / libcosmic API migration | ⏸️ Deferred — blocked by R1. |
+| 2026-06-17 | §3 Dependency bump | ✅ **Complete.** libcosmic pinned to `6af8b70` (v1.0.0), iced 0.14.0 stable, wgpu 28.0.0, accesskit_unix 0.17, zbus 5.19, `iced_wgpu` added as direct dep, edition 2024, rust-version 1.93. `window_clipboard`/`dnd`/`mime` vendored + patched (yanked `clipboard-win` workaround). `fs_extra`/`trash`/`filetime` pinned to cached commits. Lockfile resolves; tree compiles to the API layer. |
+| 2026-06-17 | §4 iced / libcosmic API migration | 🔄 **In progress (154 → 74 errors).** Done: `horizontal_space`/`vertical_space` → `space::horizontal()/vertical()` (38 sites); `cosmic::iced_core` → `cosmic::iced::core`, `cosmic::iced_widget` → `cosmic::iced::widget`, `cosmic::iced_runtime` → `cosmic::iced::runtime`, `cosmic::iced_wgpu` → `iced_wgpu` (61 sites). **Remaining (itemized):** (a) `cosmic::app::Message` → `cosmic::Action` enum (~32 sites, variants `App`/`Cosmic`/`None`/`Surface`, plus the `app::message::app()/cosmic()` helper fns); (b) wgpu 28 `ImageCopyTexture`/`ImageDataLayout` renamed (in `src/video/pipeline.rs`, `src/audio/pipeline.rs` — old GStreamer pipeline, slated for §8.4 deletion); (c) `window::change_mode` removed (4 sites); (d) `Widget::on_event` no longer a trait method (4 sites); (e) `Primitive::prepare` signature changed — no `format` param, `Pipeline` associated type required (2 sites — same §8.4 files); (f) `overlay()` signature +1 param; (g) `nav_context_menu` lost a param; (h) `desktop::IconSource` moved; (i) `widget::progress_bar` is now a module not fn. |
 | 2026-06-17 | §5 Pipeline rewrite (new Primitive) | ⏸️ Deferred — blocked by R1 (no mpv Vulkan render context to draw). |
-| 2026-06-17 | §6 wgpu 28 API migration | ⛔ **R1 confirmed blocking.** |
+| 2026-06-17 | §6 wgpu 28 API migration | ⛔ **R1 confirmed blocking** (mpv render path). The non-mpv wgpu 28 renames (`ImageCopyTexture`, `ImageDataLayout`) are tracked under §4(b) above. |
 | 2026-06-17 | §7 Libmpv FFI + Vulkan render integration | ✅ **§7.1 + §7.2 complete.** `src/mpv/ffi.rs` (hand-written FFI, correct ABI verified via struct-layout test + standalone probe) and `src/mpv/player.rs` (safe `MpvPlayer` wrapper with `Drop`, property getters, command helpers, event API) are implemented, wired into `lib.rs`, linked via `build.rs`, and pass 3 pure-logic unit tests + 1 ABI-layout test. ⛔ §7.3 (Vulkan render context) remains blocked by R1. **Finding:** libmpv 0.41.0 segfaults when initialized inside the Rust test harness (which links gstreamer/wgpu/iced simultaneously) even though the identical call sequence works in a standalone binary. Runtime tests are therefore excluded from the suite; validated via standalone probe instead. |
 | 2026-06-17 | §8 Model port (Video / Audio) | ⏸️ Deferred — depends on §5/§7. |
 | 2026-06-17 | §9 Packaging / CI / Flatpak / Docs | ⏸️ Deferred — depends on §3/§8. |
@@ -40,6 +40,22 @@ designed. Three re-scoping options exist (see Appendix B, Q2):
 **Recommendation:** Option 3 first (unblock the iced/libcosmic/edition
 migration which is independent of the video backend), then revisit the
 video backend via Option 1 once the UI is stable on iced 0.14.0.
+
+### Dependency-bump notes (2026-06-17)
+
+- `window_clipboard`/`dnd`/`mime` are git deps of iced 0.14.0 (pop-os fork,
+  tag `sctk-0.20`). Their `clipboard-win` requirement (Windows-only) pointed
+  at the yanked `5.4.0` and no other version was cached. Workaround: vendored
+  the whole `window_clipboard` checkout into `vendor/window_clipboard/` and
+  added `[patch.'https://github.com/pop-os/window_clipboard.git']` entries
+  for `window_clipboard`, `dnd`, and `mime` (they must come from one source or
+  the `dnd::DndAction` types diverge → E0308). The vendored `clipboard-win`
+  requirement was relaxed from the yanked `5.4.0` to `^5.0`.
+- `fs_extra` (trash-rs dep), `trash`, and the `filetime` patch had no branch/
+  tag refs in the offline git db; pinned each to its cached commit
+  (`7e7222e`, `483f839`, `186e19d` respectively).
+- `zbus` un-pinned from `= 4.4.0` to `5` (resolves 5.19.0).
+- `accesskit_unix` un-pinned from `= 0.13.1` to `0.17` (resolves 0.17.2).
 
 ### Additional finding (2026-06-17)
 

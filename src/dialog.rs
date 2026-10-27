@@ -448,7 +448,7 @@ impl App {
                 }
             }
         }
-        row = row.push(widget::horizontal_space());
+        row = row.push(widget::space::horizontal());
         row = row.push(widget::button::standard(fl!("cancel")).on_press(Message::Cancel));
         row = row.push(if self.flags.kind.save() {
             widget::button::suggested(&self.accept_label).on_press(Message::Save(false))

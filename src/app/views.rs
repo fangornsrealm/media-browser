@@ -550,10 +550,10 @@ impl App {
     ///
     /// Converts a mouse wheel delta into a ~10s seek relative to the current
     /// position on the active video/audio view and unpauses playback.
-    pub fn mouse_scroll(&mut self, delta: cosmic::iced_core::mouse::ScrollDelta) -> Task<Message> {
+    pub fn mouse_scroll(&mut self, delta: cosmic::iced::core::mouse::ScrollDelta) -> Task<Message> {
         let delta_y = match delta {
-            cosmic::iced_core::mouse::ScrollDelta::Lines { y, .. } => y,
-            cosmic::iced_core::mouse::ScrollDelta::Pixels { y, .. } => y,
+            cosmic::iced::core::mouse::ScrollDelta::Lines { y, .. } => y,
+            cosmic::iced::core::mouse::ScrollDelta::Pixels { y, .. } => y,
         };
         if self.active_view == Mode::Video {
             let seconds = self.video_view.position + delta_y as f64 * 10.0;

@@ -6,43 +6,40 @@
 
 #[cfg(feature = "wayland")]
 use cosmic::iced::{
+    Limits,
     event::wayland::{Event as WaylandEvent, OutputEvent, OverlapNotifyEvent},
     platform_specific::runtime::wayland::layer_surface::{
         IcedMargin, IcedOutput, SctkLayerSurfaceSettings,
     },
     platform_specific::shell::wayland::commands::layer_surface::{
-        destroy_layer_surface, get_layer_surface, Anchor, KeyboardInteractivity, Layer,
+        Anchor, KeyboardInteractivity, Layer, destroy_layer_surface, get_layer_surface,
     },
-    Limits,
 };
 #[cfg(feature = "wayland")]
 use cosmic::iced_winit::commands::overlap_notify::overlap_notify;
 use cosmic::{
-    app::{self, context_drawer, message, Core, Task},
+    Application, ApplicationExt, Element,
+    app::{self, Core, Task, context_drawer, message},
     cosmic_config, cosmic_theme, executor, font,
     iced::{
-        event,
+        Alignment, Event, Length, Rectangle, Size, Subscription, event,
         futures::{self, SinkExt},
         keyboard::{Event as KeyEvent, Modifiers},
         stream,
         window::{self, Event as WindowEvent, Id as WindowId},
-        Alignment, Event, Length, Rectangle, Size, Subscription,
     },
     style, theme,
     widget::{
-        self,
+        self, Container, Slider,
         dnd_destination::DragId,
-        horizontal_space,
         menu::key_bind::KeyBind,
         segmented_button::{self, Entity},
-        vertical_space, Container, Slider,
+        space,
     },
-    Application, ApplicationExt, Element,
 };
 use notify_debouncer_full::{
-    new_debouncer,
+    Debouncer, FileIdMap, new_debouncer,
     notify::{self, RecommendedWatcher, Watcher},
-    Debouncer, FileIdMap,
 };
 use slotmap::Key as SlotMapKey;
 use std::{
@@ -69,7 +66,7 @@ pub use gstreamer_app as gst_app;
 pub use gstreamer_pbutils as gst_pbutils;
 
 #[cfg(feature = "wayland")]
-use wayland_client::{protocol::wl_output::WlOutput, Proxy};
+use wayland_client::{Proxy, protocol::wl_output::WlOutput};
 
 use crate::{
     config::{AppTheme, Config, IconSizes, MediaFavorite as Favorite},
@@ -77,7 +74,7 @@ use crate::{
     key_bind::key_binds,
     localize::LANGUAGE_SORTER,
     menu,
-    mounter::{MounterAuth, MounterItems, MounterKey, MounterMessage, MOUNTERS},
+    mounter::{MOUNTERS, MounterAuth, MounterItems, MounterKey, MounterMessage},
     operation::{Controller, Operation, OperationSelection, ReplaceResult},
     tab::{self, ItemMetadata, Location, Tab},
 };
@@ -854,7 +851,7 @@ impl App {
                 Message::SearchPreviousPick,
             )
             .into(),
-            widget::horizontal_space().into(),
+            widget::space::horizontal().into(),
             widget::tooltip(
                 widget::button::icon(widget::icon::from_name("checkbox-checked-symbolic").size(16))
                     .on_press(Message::SearchPreviousSelect),
@@ -876,11 +873,11 @@ impl App {
             widget::checkbox(fl!("search-images"), self.search.image)
                 .on_toggle(|b| Message::SearchImages(b))
                 .into(),
-            widget::horizontal_space().into(),
+            widget::space::horizontal().into(),
             widget::checkbox(fl!("search-videos"), self.search.video)
                 .on_toggle(|b| Message::SearchVideos(b))
                 .into(),
-            widget::horizontal_space().into(),
+            widget::space::horizontal().into(),
             widget::checkbox(fl!("search-audios"), self.search.audio)
                 .on_toggle(|b| Message::SearchAudios(b))
                 .into(),
@@ -888,7 +885,7 @@ impl App {
         column = column.push(widget::text::heading(fl!("search-textentry")));
         column = column.push(widget::row::with_children(vec![
             widget::text::heading(fl!("search-text-from")).into(),
-            widget::horizontal_space().into(),
+            widget::space::horizontal().into(),
             widget::text::heading(fl!("search-text-to")).into(),
         ]));
         column = column.push(widget::row::with_children(vec![
@@ -915,11 +912,11 @@ impl App {
             widget::checkbox(fl!("search-filepath"), self.search.filepath)
                 .on_toggle(move |value| Message::SearchFilepath(value))
                 .into(),
-            widget::horizontal_space().into(),
+            widget::space::horizontal().into(),
             widget::checkbox(fl!("search-title"), self.search.title)
                 .on_toggle(move |value| Message::SearchTitle(value))
                 .into(),
-            widget::horizontal_space().into(),
+            widget::space::horizontal().into(),
             widget::checkbox(fl!("search-tag"), self.search.tags)
                 .on_toggle(move |value| Message::SearchTag(value))
                 .into(),
@@ -928,11 +925,11 @@ impl App {
             widget::checkbox(fl!("search-description"), self.search.description)
                 .on_toggle(move |value| Message::SearchDescription(value))
                 .into(),
-            widget::horizontal_space().into(),
+            widget::space::horizontal().into(),
             widget::checkbox(fl!("search-actor"), self.search.actor)
                 .on_toggle(move |value| Message::SearchActor(value))
                 .into(),
-            widget::horizontal_space().into(),
+            widget::space::horizontal().into(),
             widget::checkbox(fl!("search-director"), self.search.director)
                 .on_toggle(move |value| Message::SearchDirector(value))
                 .into(),
@@ -941,11 +938,11 @@ impl App {
             widget::checkbox(fl!("search-album"), self.search.album)
                 .on_toggle(move |value| Message::SearchAlbum(value))
                 .into(),
-            widget::horizontal_space().into(),
+            widget::space::horizontal().into(),
             widget::checkbox(fl!("search-composer"), self.search.composer)
                 .on_toggle(move |value| Message::SearchComposer(value))
                 .into(),
-            widget::horizontal_space().into(),
+            widget::space::horizontal().into(),
             widget::checkbox(fl!("search-genre"), self.search.genre)
                 .on_toggle(move |value| Message::SearchGenre(value))
                 .into(),
@@ -954,11 +951,11 @@ impl App {
             widget::checkbox(fl!("search-artist"), self.search.artist)
                 .on_toggle(move |value| Message::SearchArtist(value))
                 .into(),
-            widget::horizontal_space().into(),
+            widget::space::horizontal().into(),
             widget::checkbox(fl!("search-album_artist"), self.search.album_artist)
                 .on_toggle(move |value| Message::SearchAlbumartist(value))
                 .into(),
-            widget::horizontal_space().into(),
+            widget::space::horizontal().into(),
             widget::checkbox(fl!("search-duration"), self.search.duration)
                 .on_toggle(move |value| Message::SearchDuration(value))
                 .into(),
@@ -967,14 +964,14 @@ impl App {
             widget::checkbox(fl!("search-creation_date"), self.search.creation_date)
                 .on_toggle(move |value| Message::SearchCreationDate(value))
                 .into(),
-            widget::horizontal_space().into(),
+            widget::space::horizontal().into(),
             widget::checkbox(
                 fl!("search-modification_date"),
                 self.search.modification_date,
             )
             .on_toggle(move |value| Message::SearchModificationDate(value))
             .into(),
-            widget::horizontal_space().into(),
+            widget::space::horizontal().into(),
             widget::checkbox(fl!("search-release_date"), self.search.release_date)
                 .on_toggle(move |value| Message::SearchReleaseDate(value))
                 .into(),
@@ -983,15 +980,15 @@ impl App {
             widget::checkbox(fl!("search-lense_model"), self.search.lense_model)
                 .on_toggle(move |value| Message::SearchLenseModel(value))
                 .into(),
-            widget::horizontal_space().into(),
+            widget::space::horizontal().into(),
             widget::checkbox(fl!("search-focal_length"), self.search.focal_length)
                 .on_toggle(move |value| Message::SearchFocalLength(value))
                 .into(),
-            widget::horizontal_space().into(),
+            widget::space::horizontal().into(),
             widget::checkbox(fl!("search-exposure_time"), self.search.exposure_time)
                 .on_toggle(move |value| Message::SearchExposureTime(value))
                 .into(),
-            widget::horizontal_space().into(),
+            widget::space::horizontal().into(),
             widget::checkbox(fl!("search-fnumber"), self.search.fnumber)
                 .on_toggle(move |value| Message::SearchFNumber(value))
                 .into(),
@@ -1000,11 +997,11 @@ impl App {
             widget::checkbox(fl!("search-gps_latitude"), self.search.gps_latitude)
                 .on_toggle(move |value| Message::SearchGpsLatitude(value))
                 .into(),
-            widget::horizontal_space().into(),
+            widget::space::horizontal().into(),
             widget::checkbox(fl!("search-gps_longitude"), self.search.gps_longitude)
                 .on_toggle(move |value| Message::SearchGpsLongitude(value))
                 .into(),
-            widget::horizontal_space().into(),
+            widget::space::horizontal().into(),
             widget::checkbox(fl!("search-gps_altitude"), self.search.gps_altitude)
                 .on_toggle(move |value| Message::SearchGpsAltitude(value))
                 .into(),
@@ -1451,7 +1448,7 @@ impl App {
 
             popup_items.push(
                 widget::row::with_children(vec![
-                    widget::horizontal_space().into(),
+                    widget::space::horizontal().into(),
                     widget::container(column)
                         .padding(1)
                         //TODO: move style to libcosmic
@@ -1841,7 +1838,7 @@ impl App {
 
             popup_items.push(
                 widget::row::with_children(vec![
-                    widget::horizontal_space().into(),
+                    widget::space::horizontal().into(),
                     widget::container(column)
                         .padding(1)
                         //TODO: move style to libcosmic
@@ -2102,7 +2099,7 @@ impl App {
         }
 
         // The toaster is added on top of an empty element to ensure that it does not override context menus
-        tab_column = tab_column.push(widget::toaster(&self.toasts, widget::horizontal_space()));
+        tab_column = tab_column.push(widget::toaster(&self.toasts, widget::space::horizontal()));
 
         let content: Element<_> = tab_column.into();
 
@@ -3041,7 +3038,7 @@ impl Application for App {
                 .title(fl!("add-network-drive"))
                 .header(text_input)
                 .footer(widget::row::with_children(vec![
-                    widget::horizontal_space().into(),
+                    widget::space::horizontal().into(),
                     button.into(),
                 ]))
             }
@@ -3383,7 +3380,7 @@ impl Application for App {
                                 } else {
                                     widget::text::body(app.name.to_string()).into()
                                 },
-                                widget::horizontal_space().into(),
+                                widget::space::horizontal().into(),
                                 if *selected == i {
                                     widget::icon::from_name("checkbox-checked-symbolic")
                                         .size(16)
@@ -3651,7 +3648,7 @@ impl Application for App {
                     .padding(0)
                     .trailing_icon(true)
                     .into(),
-                widget::horizontal_space().into(),
+                widget::space::horizontal().into(),
                 widget::button::standard("dismiss".to_string())
                     .on_press(Message::PendingDismiss)
                     .into(),
@@ -3666,12 +3663,14 @@ impl Application for App {
     }
 
     fn header_start(&self) -> Vec<Element<'_, Self::Message>> {
-        vec![menu::menu_bar(
-            self.tab_model.active_data::<Tab>(),
-            &self.config,
-            &self.key_binds,
-        )
-        .into()]
+        vec![
+            menu::menu_bar(
+                self.tab_model.active_data::<Tab>(),
+                &self.config,
+                &self.key_binds,
+            )
+            .into(),
+        ]
     }
 
     fn header_end(&self) -> Vec<Element<'_, Self::Message>> {
@@ -3774,7 +3773,8 @@ impl Application for App {
             }
 
             // The toaster is added on top of an empty element to ensure that it does not override context menus
-            tab_column = tab_column.push(widget::toaster(&self.toasts, widget::horizontal_space()));
+            tab_column =
+                tab_column.push(widget::toaster(&self.toasts, widget::space::horizontal()));
 
             let content: Element<_> = tab_column.into();
 
@@ -3793,7 +3793,7 @@ impl Application for App {
                     Some(tab) => tab
                         .view(&self.key_binds)
                         .map(move |message| Message::TabMessage(Some(*entity), message)),
-                    None => widget::vertical_space().into(),
+                    None => widget::space::vertical().into(),
                 };
 
                 let mut popover = widget::popover(tab_view);
@@ -3804,20 +3804,20 @@ impl Application for App {
 
                 // The toaster is added on top of an empty element to ensure that it does not override context menus
                 tab_column =
-                    tab_column.push(widget::toaster(&self.toasts, widget::horizontal_space()));
+                    tab_column.push(widget::toaster(&self.toasts, widget::space::horizontal()));
                 return if let Some(margin) = self.margin.get(&id) {
                     if margin.0 >= 0. || margin.2 >= 0. {
                         tab_column = widget::column::with_children(vec![
-                            vertical_space().height(margin.0 as f32).into(),
+                            space::vertical().height(margin.0 as f32).into(),
                             tab_column.into(),
-                            vertical_space().height(margin.2 as f32).into(),
+                            space::vertical().height(margin.2 as f32).into(),
                         ])
                     }
                     if margin.1 >= 0. || margin.3 >= 0. {
                         Element::from(widget::row::with_children(vec![
-                            horizontal_space().width(margin.1 as f32).into(),
+                            space::horizontal().width(margin.1 as f32).into(),
                             tab_column.into(),
-                            horizontal_space().width(margin.3 as f32).into(),
+                            space::horizontal().width(margin.3 as f32).into(),
                         ]))
                     } else {
                         tab_column.into()
@@ -3995,7 +3995,9 @@ impl Application for App {
                                     if let Err(e) = futures::executor::block_on(async {
                                         output.send(Message::RescanTrash).await
                                     }) {
-                                        log::warn!("trash needs to be rescanned but sending message failed: {e:?}");
+                                        log::warn!(
+                                            "trash needs to be rescanned but sending message failed: {e:?}"
+                                        );
                                     }
                                 }
                             }
@@ -4180,7 +4182,7 @@ pub(crate) mod test_utils {
     };
 
     use log::{debug, trace};
-    use tempfile::{tempdir, TempDir};
+    use tempfile::{TempDir, tempdir};
 
     use crate::{
         config::{IconSizes, MediaTabConfig as TabConfig},
@@ -4240,7 +4242,9 @@ pub(crate) mod test_utils {
         // TempDir won't leak resources as long as the destructor runs
         let root = tempdir()?;
         debug!("Root temp directory: {}", root.as_ref().display());
-        trace!("Creating {files} files and {hidden} hidden files in {dirs} temp dirs with {nested} nested temp dirs");
+        trace!(
+            "Creating {files} files and {hidden} hidden files in {dirs} temp dirs with {nested} nested temp dirs"
+        );
 
         // All paths for directories and nested directories
         let paths = (0..dirs).flat_map(|_| {
@@ -4315,11 +4319,7 @@ pub(crate) mod test_utils {
         Ok(path.read_dir()?.filter_map(|entry| {
             entry.ok().and_then(|entry| {
                 let path = entry.path();
-                if path.is_dir() {
-                    Some(path)
-                } else {
-                    None
-                }
+                if path.is_dir() { Some(path) } else { None }
             })
         }))
     }

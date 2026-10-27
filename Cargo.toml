@@ -2,13 +2,13 @@
 name = "media-browser"
 version = "0.9.0"
 authors = ["Alexander Schwarzkopf <progs@fangornsrealm.eu>"]
-edition = "2021"
+edition = "2024"
 description = "Browse and play your media files, view your images, tag them and search for metadata."
 readme = "README.md"
 license = "GPL-3.0"
 homepage = "https://github.com/fangornsrealm/media-browser"
 repository = "https://github.com/fangornsrealm/media-browser.git"
-rust-version = "1.80"
+rust-version = "1.93"
 
 [lints.rust]
 # No additional rustc lints beyond the defaults.
@@ -31,13 +31,13 @@ dirs = "6.0.0"
 env_logger = "0.11"
 file-format = { version = "0.26.0", features = ["reader"] }
 freedesktop_entry_parser = "1.3"
-fs_extra = { git = "https://github.com/pop-os/fs_extra.git" }
+fs_extra = { git = "https://github.com/pop-os/fs_extra.git", rev = "7e7222e" }
 gio = { version = "0.20.6", optional = true }
 glib = { version = "0.20.6", optional = true }
 glob = "0.3"
 gstreamer = "0.23"
-gstreamer-app = "0.23"                                                           # appsink
-gstreamer-base = "0.23"                                                          # basesrc
+gstreamer-app = "0.23" # appsink
+gstreamer-base = "0.23" # basesrc
 gstreamer-pbutils = "0.23"
 gstreamer-tag = "0.23"
 gst-plugin-matroska = "0.0.0"
@@ -66,14 +66,16 @@ shlex = { version = "1.3" }
 thiserror = "2.0.11"
 tikv-jemallocator = { version = "0.6", optional = true }
 tokio = { version = "1", features = ["sync", "time"] }
-trash = { git = "https://github.com/jackpot51/trash-rs.git", branch = "cosmic" }
+trash = { git = "https://github.com/jackpot51/trash-rs.git", rev = "483f839" }
 url = "2"
 walkdir = "2.5.0"
 wayland-client = { version = "0.31.7", optional = true }
 xdg = { version = "2.5.2", optional = true }
 xdg-mime = "0.4"
 xml = "0.8.16"
-zbus = { version = "= 4.4.0", default-features = false, features = ["tokio"] }
+zbus = { version = "5", default-features = false, features = [
+    "tokio",
+] } # was "= 4.4.0" — libcosmic 1.0 pulls zbus 5.x (registry: 5.3.0–5.19.0)
 
 # Compression
 bzip2 = { version = "0.5", optional = true }   #TODO: replace with pure Rust crate
@@ -95,8 +97,18 @@ uzers = "0.12.0"
 
 [dependencies.libcosmic]
 git = "https://github.com/pop-os/libcosmic.git"
+rev = "6af8b70"                                               # libcosmic 1.0.0 — edition 2024, rust-version 1.93, iced 0.14.0 stable, wgpu 28.0.0 (see docs/PLAN, Appendix B Q1)
 default-features = false
 features = ["a11y", "multi-window", "tokio", "winit", "wgpu"]
+
+# libcosmic 1.0 does not re-export `iced_wgpu` (the `Primitive` /
+# `Pipeline` / `Storage` / `Renderer` modules). We depend on it directly;
+# cargo resolves it to the same crate in the libcosmic git workspace
+# (`path = "iced/wgpu"`) so there is exactly one copy.
+[dependencies.iced_wgpu]
+git = "https://github.com/pop-os/libcosmic.git"
+rev = "6af8b70"
+package = "iced_wgpu"
 
 #[dependencies.iced_video_player]
 #git = "https://github.com/jackpot51/iced_video_player.git"
@@ -104,7 +116,7 @@ features = ["a11y", "multi-window", "tokio", "winit", "wgpu"]
 #default-features = false
 
 [dependencies.accesskit_unix]
-version = "= 0.13.1"
+version = "0.17"         # was "= 0.13.1" — iced 0.14.0 / libcosmic 1.0 use accesskit 0.17.x (registry: 0.17.2)
 default-features = false
 features = ["tokio"]
 
@@ -153,7 +165,16 @@ tokio = { version = "1", features = ["rt", "macros"] }
 
 [patch.crates-io]
 # https://github.com/alexcrichton/filetime/pull/104
-filetime = { git = "https://github.com/jackpot51/filetime" }
+filetime = { git = "https://github.com/jackpot51/filetime", rev = "186e19d" }
+
+# Vendored copy of window_clipboard 0.4.1 (from the pop-os fork used by
+# iced 0.14.0) with the Windows-only `clipboard-win` requirement relaxed from
+# the yanked `5.4.0` to `^5.0` so the tree resolves offline on non-Windows
+# platforms.
+[patch.'https://github.com/pop-os/window_clipboard.git']
+window_clipboard = { path = "vendor/window_clipboard" }
+dnd = { path = "vendor/window_clipboard/dnd" }
+mime = { path = "vendor/window_clipboard/mime" }
 
 # [patch.'https://github.com/pop-os/cosmic-text']
 # cosmic-text = { path = "../cosmic-text" }

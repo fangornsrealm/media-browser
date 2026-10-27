@@ -10,7 +10,7 @@ use cosmic::iced::{
     advanced::{self, layout, widget, Widget},
     Element,
 };
-use cosmic::iced_wgpu::primitive::Renderer as PrimitiveRenderer;
+use iced_wgpu::primitive::Renderer as PrimitiveRenderer;
 use std::marker::PhantomData;
 use std::{sync::Arc, time::Instant};
 
@@ -237,7 +237,7 @@ where
 
     fn on_event(
         &mut self,
-        _state: &mut cosmic::iced_core::widget::Tree,
+        _state: &mut cosmic::iced::core::widget::Tree,
         event: cosmic::iced::Event,
         _layout: advanced::Layout<'_>,
         _cursor: advanced::mouse::Cursor,
@@ -320,7 +320,7 @@ where
 
     fn mouse_interaction(
         &self,
-        _tree: &cosmic::iced_core::widget::Tree,
+        _tree: &cosmic::iced::core::widget::Tree,
         _layout: advanced::Layout<'_>,
         _cursor_position: cosmic::iced::mouse::Cursor,
         _viewport: &cosmic::iced::Rectangle,

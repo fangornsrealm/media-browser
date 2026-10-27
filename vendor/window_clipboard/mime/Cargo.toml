@@ -1,0 +1,9 @@
+[package]
+name = "mime"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[target.'cfg(all(unix, not(any(target_os="macos", target_os="android", target_os="emscripten", target_os="ios", target_os="redox"))))'.dependencies]
+smithay-clipboard = { git = "https://github.com/pop-os/smithay-clipboard", tag = "sctk-0.20" }

@@ -1424,8 +1424,8 @@ impl Item {
         name: &str,
         mime: &Mime,
     ) -> (
-        cosmic::iced_widget::Column<'_, app::Message, theme::Theme>,
-        Vec<cosmic::iced_widget::Row<'_, app::Message, theme::Theme>>,
+        cosmic::iced::widget::Column<'_, app::Message, theme::Theme>,
+        Vec<cosmic::iced::widget::Row<'_, app::Message, theme::Theme>>,
     ) {
         let cosmic_theme::Spacing { space_xxxs, .. } = theme::active().cosmic().spacing;
 
@@ -1510,13 +1510,13 @@ impl Item {
             ..
         } = theme::active().cosmic().spacing;
 
-        let mut column: cosmic::iced_widget::Column<'_, app::Message, theme::Theme> =
+        let mut column: cosmic::iced::widget::Column<'_, app::Message, theme::Theme> =
             widget::column().spacing(space_m);
 
         column = column.push(widget::row::with_children(vec![
-            widget::horizontal_space().into(),
+            widget::space::horizontal().into(),
             self.preview(sizes),
-            widget::horizontal_space().into(),
+            widget::space::horizontal().into(),
         ]));
 
         let mut details;
@@ -4868,7 +4868,7 @@ impl Tab {
                     if !items.is_empty() {
                         tab_column = tab_column.push(
                             widget::layer_container(widget::row::with_children(vec![
-                                widget::horizontal_space().into(),
+                                widget::space::horizontal().into(),
                                 widget::button::standard(fl!("empty-trash"))
                                     .on_press(Message::EmptyTrash)
                                     .into(),
@@ -4882,7 +4882,7 @@ impl Tab {
             Location::Network(uri, _display_name) if uri == "network:///" => {
                 tab_column = tab_column.push(
                     widget::layer_container(widget::row::with_children(vec![
-                        widget::horizontal_space().into(),
+                        widget::space::horizontal().into(),
                         widget::button::standard(fl!("add-network-drive"))
                             .on_press(Message::AddNetworkDrive)
                             .into(),
@@ -4901,7 +4901,7 @@ impl Tab {
             tab_view = tab_view.style(|t| {
                 let mut a = widget::container::Style::default();
                 let c = t.cosmic();
-                a.border = cosmic::iced_core::Border {
+                a.border = cosmic::iced::core::Border {
                     color: (c.accent_color()).into(),
                     width: 1.,
                     radius: c.radius_0().into(),
@@ -5572,8 +5572,8 @@ impl<M> Widget<M, cosmic::Theme, cosmic::Renderer> for ArcElementWrapper<M> {
         &self,
         tree: &mut tree::Tree,
         renderer: &cosmic::Renderer,
-        limits: &cosmic::iced_core::layout::Limits,
-    ) -> cosmic::iced_core::layout::Node {
+        limits: &cosmic::iced::core::layout::Limits,
+    ) -> cosmic::iced::core::layout::Node {
         self.0
             .lock()
             .unwrap()
@@ -5586,9 +5586,9 @@ impl<M> Widget<M, cosmic::Theme, cosmic::Renderer> for ArcElementWrapper<M> {
         tree: &tree::Tree,
         renderer: &mut cosmic::Renderer,
         theme: &cosmic::Theme,
-        style: &cosmic::iced_core::renderer::Style,
-        layout: cosmic::iced_core::Layout<'_>,
-        cursor: cosmic::iced_core::mouse::Cursor,
+        style: &cosmic::iced::core::renderer::Style,
+        layout: cosmic::iced::core::Layout<'_>,
+        cursor: cosmic::iced::core::mouse::Cursor,
         viewport: &Rectangle,
     ) {
         self.0
@@ -5617,7 +5617,7 @@ impl<M> Widget<M, cosmic::Theme, cosmic::Renderer> for ArcElementWrapper<M> {
     fn operate(
         &self,
         state: &mut tree::Tree,
-        layout: cosmic::iced_core::Layout<'_>,
+        layout: cosmic::iced::core::Layout<'_>,
         renderer: &cosmic::Renderer,
         operation: &mut dyn widget::Operation,
     ) {
@@ -5632,11 +5632,11 @@ impl<M> Widget<M, cosmic::Theme, cosmic::Renderer> for ArcElementWrapper<M> {
         &mut self,
         _state: &mut tree::Tree,
         _event: cosmic::iced::Event,
-        _layout: cosmic::iced_core::Layout<'_>,
-        _cursor: cosmic::iced_core::mouse::Cursor,
+        _layout: cosmic::iced::core::Layout<'_>,
+        _cursor: cosmic::iced::core::mouse::Cursor,
         _renderer: &cosmic::Renderer,
-        _clipboard: &mut dyn cosmic::iced_core::Clipboard,
-        _shell: &mut cosmic::iced_core::Shell<'_, M>,
+        _clipboard: &mut dyn cosmic::iced::core::Clipboard,
+        _shell: &mut cosmic::iced::core::Shell<'_, M>,
         _viewport: &Rectangle,
     ) -> event::Status {
         self.0.lock().unwrap().as_widget_mut().on_event(
@@ -5647,11 +5647,11 @@ impl<M> Widget<M, cosmic::Theme, cosmic::Renderer> for ArcElementWrapper<M> {
     fn mouse_interaction(
         &self,
         _state: &tree::Tree,
-        _layout: cosmic::iced_core::Layout<'_>,
-        _cursor: cosmic::iced_core::mouse::Cursor,
+        _layout: cosmic::iced::core::Layout<'_>,
+        _cursor: cosmic::iced::core::mouse::Cursor,
         _viewport: &Rectangle,
         _renderer: &cosmic::Renderer,
-    ) -> cosmic::iced_core::mouse::Interaction {
+    ) -> cosmic::iced::core::mouse::Interaction {
         self.0
             .lock()
             .unwrap()
@@ -5662,10 +5662,10 @@ impl<M> Widget<M, cosmic::Theme, cosmic::Renderer> for ArcElementWrapper<M> {
     fn overlay<'a>(
         &'a mut self,
         _state: &'a mut tree::Tree,
-        _layout: cosmic::iced_core::Layout<'_>,
+        _layout: cosmic::iced::core::Layout<'_>,
         _renderer: &cosmic::Renderer,
-        _translation: cosmic::iced_core::Vector,
-    ) -> Option<cosmic::iced_core::overlay::Element<'a, M, cosmic::Theme, cosmic::Renderer>> {
+        _translation: cosmic::iced::core::Vector,
+    ) -> Option<cosmic::iced::core::overlay::Element<'a, M, cosmic::Theme, cosmic::Renderer>> {
         // TODO
         None
     }
@@ -5681,9 +5681,9 @@ impl<M> Widget<M, cosmic::Theme, cosmic::Renderer> for ArcElementWrapper<M> {
     fn drag_destinations(
         &self,
         _state: &tree::Tree,
-        _layout: cosmic::iced_core::Layout<'_>,
+        _layout: cosmic::iced::core::Layout<'_>,
         renderer: &cosmic::Renderer,
-        _dnd_rectangles: &mut cosmic::iced_core::clipboard::DndDestinationRectangles,
+        _dnd_rectangles: &mut cosmic::iced::core::clipboard::DndDestinationRectangles,
     ) {
         self.0.lock().unwrap().as_widget().drag_destinations(
             _state,
@@ -5703,7 +5703,7 @@ impl<Message: 'static> From<ArcElementWrapper<Message>> for Element<'static, Mes
 fn _text_editor_class(
     theme: &cosmic::Theme,
     status: cosmic::widget::text_editor::Status,
-) -> cosmic::iced_widget::text_editor::Style {
+) -> cosmic::iced::widget::text_editor::Style {
     let cosmic = theme.cosmic();
     let container = theme.current_container();
 
@@ -5717,9 +5717,9 @@ fn _text_editor_class(
     let icon = cosmic.background.on.into();
 
     match status {
-        cosmic::iced_widget::text_editor::Status::Active
-        | cosmic::iced_widget::text_editor::Status::Disabled => {
-            cosmic::iced_widget::text_editor::Style {
+        cosmic::iced::widget::text_editor::Status::Active
+        | cosmic::iced::widget::text_editor::Status::Disabled => {
+            cosmic::iced::widget::text_editor::Style {
                 background: background.into(),
                 border: cosmic::iced::Border {
                     radius: cosmic.corner_radii.radius_m.into(),
@@ -5732,9 +5732,9 @@ fn _text_editor_class(
                 selection,
             }
         }
-        cosmic::iced_widget::text_editor::Status::Hovered
-        | cosmic::iced_widget::text_editor::Status::Focused => {
-            cosmic::iced_widget::text_editor::Style {
+        cosmic::iced::widget::text_editor::Status::Hovered
+        | cosmic::iced::widget::text_editor::Status::Focused => {
+            cosmic::iced::widget::text_editor::Style {
                 background: background.into(),
                 border: cosmic::iced::Border {
                     radius: cosmic.corner_radii.radius_m.into(),
