@@ -29,16 +29,18 @@ Problems:
 
 ## 2. Architecture & Modularity
 
-### 2.1 [High] ⬜ IN PROGRESS — Very large source files
+### 2.1 [High] ⬜ IN PROGRESS — Very large source files (`sql.rs` ✅ done)
 Current line counts:
 - `src/app.rs` — ~7203 lines
-- `src/sql.rs` — ~2250 lines (down from ~6589 after modularization)
+- `src/sql.rs` — ~1253 lines (down from ~6589 after modularization)
 - `src/sql/search.rs` — ~1182 lines
 - `src/sql/audio.rs` — ~1196 lines
 - `src/sql/video.rs` — ~1188 lines
 - `src/sql/file.rs` — ~479 lines
 - `src/sql/image.rs` — ~634 lines
 - `src/sql/tags.rs` — ~227 lines
+- `src/sql/collection.rs` — ~541 lines
+- `src/sql/search_history.rs` — ~478 lines
 - `src/tab.rs` — ~5738 lines
 - `src/parsers.rs` — ~2710 lines
 - `src/dialog.rs` — ~1721 lines
@@ -52,12 +54,11 @@ Current line counts:
 - `sql/audio.rs` — audio CRUD (`AudioMetadata`, `insert_audio`, `delete_audio`, `update_audio`, `audio_by_id`, `audio`)
 - `sql/image.rs` — image CRUD (`ImageMetadata`, `insert_image`, `delete_image`, `update_image`, `image_by_id`, `image`)
 
-Each submodule reaches the parent's shared types (`Tag`, `Chapter`, `SearchData`), the `file` group (`insert_file`, `file`), the `tags` group (`insert_tag`), and `escape_like_term`/`file_by_id` via `super::`. What remains in `sql.rs`: the core types (`SearchType`, `SearchData`, `Tag`, `Chapter`, `CollectionMetadata`, `EpisodeMetadata`), `fill_chapters`, the collection group, the search-history group, `home_dir` helpers, and `connect()`. All 32 tests pass, clippy is clean (0 errors, 0 unused imports), and `cargo fmt --check` is green.
+Each submodule reaches the parent's shared types (`Tag`, `Chapter`, `SearchData`), the `file` group (`insert_file`, `file`, `file_by_id`), the `tags` group (`insert_tag`), the `video` group (`video_by_id`), and `escape_like_term` via `super::`. What remains in `sql.rs` is a thin core: the core types (`SearchType`, `SearchData`, `Tag`, `Chapter`), `escape_like_term`, `fill_chapters`, the `home_dir` helpers, and `connect()`. All 32 tests pass, clippy is clean (0 errors, 0 unused imports), and `cargo fmt --check` is green.
 
 These files mix concerns (state, message handling, UI construction, persistence, parsing). This slows review, increases merge conflicts, and makes it hard to test a single behavior.
 
 **Suggested split (remaining):**
-- `sql.rs` → optionally extract the collection group (`insert_collection`/`delete_collection`/`update_collection`/`collection`) and the search-history group (`insert_search`/`delete_search`/`update_search`/`searches`) into `sql/collection.rs` and `sql/search_history.rs`
 - `app.rs` → split message handlers per feature: `app/mod.rs`, `app/scan.rs`, `app/operations.rs`, `app/nav.rs`, `app/search.rs`, `app/trash.rs`.
 - `tab.rs` → `tab/` with `location.rs`, `items.rs`, `selection.rs`, `sort.rs`.
 - `parsers.rs` → per-format parsers (`parsers/nfo.rs`, `parsers/exif.rs`, `parsers/id3.rs`) behind a common trait.
@@ -272,7 +273,7 @@ These align with the open items already tracked in `Todo.md` and the README; fla
 7. ⬜ Centralize blocking work on `spawn_blocking` with cancellation (`3.3`) — spawn sites audited (all intentional fire-and-forget workers); cancellation still missing.
 
 **Phase 3 — Architecture & quality**
-8. ⬜ (partial) Split `sql.rs` and `app.rs` into modules — ✅ `sql.rs` fully modularized into six submodules (`search`, `file`, `tags`, `video`, `audio`, `image`) via the re-export pattern, no call-site changes; ⬜ optionally extract the collection + search-history groups; ⬜ `app.rs`/`tab.rs`/`parsers.rs` still monolithic; ⬜ unify the three search implementations (`2.1`, `2.2`).
+8. ⬜ (partial) Split `sql.rs` and `app.rs` into modules — ✅ `sql.rs` fully modularized into eight submodules (`search`, `file`, `tags`, `video`, `audio`, `image`, `collection`, `search_history`) via the re-export pattern, no call-site changes, down to a ~1253-line core; ⬜ `app.rs`/`tab.rs`/`parsers.rs` still monolithic; ⬜ unify the three search implementations (`2.1`, `2.2`).
 9. Refactor `SearchData` to a `HashSet<SearchType>` with derived traits (`2.3`); clean up the `Action`/`Message` mapping (`2.4`).
 10. Standardize error handling with `anyhow`/`thiserror` and consolidate logging (`4.4`, `4.5`).
 
