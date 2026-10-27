@@ -23,6 +23,7 @@ mod mime_app;
 pub mod mime_icon;
 mod mounter;
 mod mouse_area;
+pub mod mpv;
 mod operation;
 pub mod parsers;
 pub mod scanmetadata;
