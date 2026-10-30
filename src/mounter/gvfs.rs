@@ -466,6 +466,21 @@ impl Gvfs {
     }
 }
 
+/// Carries the channel endpoints into the [`Subscription`] builder. The builder
+/// must be a non-capturing `fn` pointer (libcosmic 1.0), so the endpoints are
+/// passed as the subscription's `data` and read back by reference.
+#[derive(Clone)]
+struct GvfsSubscriptionData {
+    command_tx: mpsc::UnboundedSender<Cmd>,
+    event_rx: Arc<Mutex<mpsc::UnboundedReceiver<Event>>>,
+}
+
+impl std::hash::Hash for GvfsSubscriptionData {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        TypeId::of::<GvfsSubscriptionData>().hash(state);
+    }
+}
+
 impl Mounter for Gvfs {
     fn _items(&self, sizes: IconSizes) -> Option<MounterItems> {
         let (items_tx, mut items_rx) = mpsc::channel(1);
@@ -515,34 +530,42 @@ impl Mounter for Gvfs {
     }
 
     fn subscription(&self) -> Subscription<MounterMessage> {
-        let command_tx = self.command_tx.clone();
-        let event_rx = self.event_rx.clone();
-        Subscription::run_with_id(
-            TypeId::of::<Self>(),
-            stream::channel(1, |mut output| async move {
-                command_tx.send(Cmd::Rescan).unwrap();
-                while let Some(event) = event_rx.lock().await.recv().await {
-                    match event {
-                        Event::Changed => command_tx.send(Cmd::Rescan).unwrap(),
-                        Event::Items(items) => {
-                            output.send(MounterMessage::Items(items)).await.unwrap()
+        let data = GvfsSubscriptionData {
+            command_tx: self.command_tx.clone(),
+            event_rx: self.event_rx.clone(),
+        };
+        Subscription::run_with(
+            data,
+            |data: &GvfsSubscriptionData| {
+                let command_tx = data.command_tx.clone();
+                let event_rx = data.event_rx.clone();
+                stream::channel::<MounterMessage>(
+                    1,
+                    move |mut output: cosmic::iced::futures::channel::mpsc::Sender<MounterMessage>| async move {
+                        command_tx.send(Cmd::Rescan).unwrap();
+                        while let Some(event) = event_rx.lock().await.recv().await {
+                            match event {
+                                Event::Changed => command_tx.send(Cmd::Rescan).unwrap(),
+                                Event::Items(items) => {
+                                    output.send(MounterMessage::Items(items)).await.unwrap()
+                                }
+                                Event::MountResult(item, res) => output
+                                    .send(MounterMessage::MountResult(item, res))
+                                    .await
+                                    .unwrap(),
+                                Event::NetworkAuth(uri, auth, auth_tx) => output
+                                    .send(MounterMessage::NetworkAuth(uri, auth, auth_tx))
+                                    .await
+                                    .unwrap(),
+                                Event::NetworkResult(uri, res) => output
+                                    .send(MounterMessage::NetworkResult(uri, res))
+                                    .await
+                                    .unwrap(),
+                            }
                         }
-                        Event::MountResult(item, res) => output
-                            .send(MounterMessage::MountResult(item, res))
-                            .await
-                            .unwrap(),
-                        Event::NetworkAuth(uri, auth, auth_tx) => output
-                            .send(MounterMessage::NetworkAuth(uri, auth, auth_tx))
-                            .await
-                            .unwrap(),
-                        Event::NetworkResult(uri, res) => output
-                            .send(MounterMessage::NetworkResult(uri, res))
-                            .await
-                            .unwrap(),
-                    }
-                }
-                pending().await
-            }),
+                        pending().await
+                    })
+            },
         )
     }
 }

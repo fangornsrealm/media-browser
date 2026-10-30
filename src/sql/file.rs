@@ -61,42 +61,17 @@ pub fn file_by_id(
                                         continue;
                                     }
                                 }
-                                match row.get(1) {
-                                    Ok(val) => v.creation_time = val,
-                                    Err(error) => {
-                                        log::error!(
-                                            "Failed to read creation_time for file: {}",
-                                            error
-                                        );
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(1) {
+                                    v.creation_time = val;
                                 }
-                                match row.get(2) {
-                                    Ok(val) => v.modification_time = val,
-                                    Err(error) => {
-                                        log::error!(
-                                            "Failed to read modification_time for file: {}",
-                                            error
-                                        );
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(2) {
+                                    v.modification_time = val;
                                 }
-                                match row.get(3) {
-                                    Ok(val) => v.file_type = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read file_type for file: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(3) {
+                                    v.file_type = val;
                                 }
-                                match row.get(4) {
-                                    Ok(val) => v.metadata_id = val,
-                                    Err(error) => {
-                                        log::error!(
-                                            "Failed to read metadata_id for file: {}",
-                                            error
-                                        );
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(4) {
+                                    v.metadata_id = val;
                                 }
                             }
                             Ok(None) => {
@@ -148,52 +123,26 @@ pub fn file(
                     loop {
                         match rows.next() {
                             Ok(Some(row)) => {
-                                match row.get(0) {
-                                    Ok(val) => {
-                                        let st: String = val;
-                                        v.filepath = PathBuf::from(&st);
-                                    }
-                                    Err(error) => {
-                                        log::error!("Failed to read filepath for file: {}", error);
-                                        continue;
-                                    }
+                                // Columns are nullable (creation/modification
+                                // time are NULL when the filesystem has no
+                                // birth time) — read each independently so a
+                                // NULL cannot skip the rest of the row
+                                // (notably `metadata_id`).
+                                if let Ok(val) = row.get(0) {
+                                    let st: String = val;
+                                    v.filepath = PathBuf::from(&st);
                                 }
-                                match row.get(1) {
-                                    Ok(val) => v.creation_time = val,
-                                    Err(error) => {
-                                        log::error!(
-                                            "Failed to read creation_time for file: {}",
-                                            error
-                                        );
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(1) {
+                                    v.creation_time = val;
                                 }
-                                match row.get(2) {
-                                    Ok(val) => v.modification_time = val,
-                                    Err(error) => {
-                                        log::error!(
-                                            "Failed to read modification_time for file: {}",
-                                            error
-                                        );
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(2) {
+                                    v.modification_time = val;
                                 }
-                                match row.get(3) {
-                                    Ok(val) => v.file_type = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read file_type for file: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(3) {
+                                    v.file_type = val;
                                 }
-                                match row.get(4) {
-                                    Ok(val) => v.metadata_id = val,
-                                    Err(error) => {
-                                        log::error!(
-                                            "Failed to read metadata_id for file: {}",
-                                            error
-                                        );
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(4) {
+                                    v.metadata_id = val;
                                 }
                             }
                             Ok(None) => {
@@ -255,42 +204,17 @@ pub fn files(
                                         continue;
                                     }
                                 }
-                                match row.get(1) {
-                                    Ok(val) => s.creation_time = val,
-                                    Err(error) => {
-                                        log::error!(
-                                            "Failed to read creation_time for file: {}",
-                                            error
-                                        );
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(1) {
+                                    s.creation_time = val;
                                 }
-                                match row.get(2) {
-                                    Ok(val) => s.modification_time = val,
-                                    Err(error) => {
-                                        log::error!(
-                                            "Failed to read modification_time for file: {}",
-                                            error
-                                        );
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(2) {
+                                    s.modification_time = val;
                                 }
-                                match row.get(3) {
-                                    Ok(val) => s.file_type = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read file_type for file: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(3) {
+                                    s.file_type = val;
                                 }
-                                match row.get(4) {
-                                    Ok(val) => s.metadata_id = val,
-                                    Err(error) => {
-                                        log::error!(
-                                            "Failed to read metadata_id for file: {}",
-                                            error
-                                        );
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(4) {
+                                    s.metadata_id = val;
                                 }
                                 known_files.insert(s.filepath.clone(), s.clone());
                                 if s.file_type == 3 {

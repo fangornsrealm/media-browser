@@ -1,632 +1,434 @@
-// Copyright [iced-video-player]()
-// SPDX-License-Identifier: MIT
-// [MIT](http://opensource.org/licenses/MIT)
-//
-// Modifications:
-// Copyright 2024 Alexander Schwarzkopf
+//! mpv-backed video model.
+//!
+//! Wraps [`crate::mpv::MpvPlayer`] (decode / playback / properties) plus the
+//! [`crate::mpv::SwRenderer`] frame pump. The wgpu side
+//! ([`crate::pipeline`]) consumes the shared [`FrameSlot`].
+//!
+//! Volume uses the app's `0.0..=1.0` scale (mpv native is `0..=100`).
+//! Positions are [`Duration`] seconds.
+
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::Duration;
 
 use super::Error;
-use gstreamer as gst;
-//use gst::glib::FlagsClass;
-use cosmic::iced::widget::image as img;
-use gstreamer_app as gst_app;
-use gstreamer_app::prelude::*;
-use std::num::NonZeroU8;
-use std::ops::{Deref, DerefMut};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
-use std::time::{Duration, Instant};
+use crate::mpv::{self, MpvPlayer, Track, TrackKind};
 
-/// Position in the media.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Position {
-    /// Position based on time.
-    ///
-    /// Not the most accurate format for videos.
-    Time(Duration),
-    /// Position based on nth frame.
-    Frame(u64),
-}
+static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
-impl From<Position> for gst::GenericFormattedValue {
-    fn from(pos: Position) -> Self {
-        match pos {
-            Position::Time(t) => gst::ClockTime::from_nseconds(t.as_nanos() as _).into(),
-            Position::Frame(f) => gst::format::Default::from_u64(f).into(),
-        }
-    }
-}
+/// How long [`Video::new`] waits for the file to finish loading.
+const LOAD_TIMEOUT_SECS: f64 = 5.0;
 
-impl From<Duration> for Position {
-    fn from(t: Duration) -> Self {
-        Position::Time(t)
-    }
-}
+/// How long [`Video::new`] waits for the first rendered frame after load.
+const FRAME_SETTLE_MS: u64 = 2000;
 
-impl From<u64> for Position {
-    fn from(f: u64) -> Self {
-        Position::Frame(f)
-    }
-}
-
+/// A video loaded from a URI, backed by libmpv.
 #[derive(Debug)]
-pub(crate) struct Internal {
-    pub(crate) id: u64,
-
-    pub(crate) bus: gst::Bus,
-    pub(crate) source: gst::Pipeline,
-    pub(crate) alive: Arc<AtomicBool>,
-    pub(crate) worker: Option<std::thread::JoinHandle<()>>,
-
-    pub(crate) width: i32,
-    pub(crate) height: i32,
-    pub(crate) framerate: f64,
-    pub(crate) duration: Duration,
-    pub(crate) speed: f64,
-    pub(crate) sync_av: bool,
-
-    pub(crate) frame: Arc<Mutex<Vec<u8>>>,
-    pub(crate) upload_frame: Arc<AtomicBool>,
-    pub(crate) last_frame_time: Arc<Mutex<std::time::Instant>>,
-    pub(crate) looping: bool,
-    pub(crate) is_eos: bool,
-    pub(crate) restart_stream: bool,
-    pub(crate) sync_av_avg: u64,
-    pub(crate) sync_av_counter: u64,
-
-    pub(crate) subtitle_text: Arc<Mutex<Option<String>>>,
-    pub(crate) upload_text: Arc<AtomicBool>,
-
-    #[cfg(not(feature = "wgpu"))]
-    pub(crate) handle_opt: Option<img::Handle>,
-}
-
-impl Internal {
-    pub(crate) fn seek(&self, position: impl Into<Position>, accurate: bool) -> Result<(), Error> {
-        let position = position.into();
-
-        // gstreamer complains if the start & end value types aren't the same
-        match &position {
-            Position::Time(_) => self.source.seek(
-                self.speed,
-                gst::SeekFlags::FLUSH
-                    | if accurate {
-                        gst::SeekFlags::ACCURATE
-                    } else {
-                        gst::SeekFlags::empty()
-                    },
-                gst::SeekType::Set,
-                gst::GenericFormattedValue::from(position),
-                gst::SeekType::Set,
-                gst::ClockTime::NONE,
-            )?,
-            Position::Frame(_) => self.source.seek(
-                self.speed,
-                gst::SeekFlags::FLUSH
-                    | if accurate {
-                        gst::SeekFlags::ACCURATE
-                    } else {
-                        gst::SeekFlags::empty()
-                    },
-                gst::SeekType::Set,
-                gst::GenericFormattedValue::from(position),
-                gst::SeekType::Set,
-                gst::format::Default::NONE,
-            )?,
-        };
-
-        Ok(())
-    }
-
-    pub(crate) fn set_speed(&mut self, speed: f64) -> Result<(), Error> {
-        let Some(position) = self.source.query_position::<gst::ClockTime>() else {
-            return Err(Error::Caps);
-        };
-        if speed > 0.0 {
-            self.source.seek(
-                speed,
-                gst::SeekFlags::FLUSH | gst::SeekFlags::ACCURATE,
-                gst::SeekType::Set,
-                position,
-                gst::SeekType::End,
-                gst::ClockTime::from_seconds(0),
-            )?;
-        } else {
-            self.source.seek(
-                speed,
-                gst::SeekFlags::FLUSH | gst::SeekFlags::ACCURATE,
-                gst::SeekType::Set,
-                gst::ClockTime::from_seconds(0),
-                gst::SeekType::Set,
-                position,
-            )?;
-        }
-        self.speed = speed;
-        Ok(())
-    }
-
-    pub(crate) fn restart_stream(&mut self) -> Result<(), Error> {
-        self.is_eos = false;
-        self.set_paused(false);
-        self.seek(0, false)?;
-        Ok(())
-    }
-
-    pub(crate) fn set_paused(&mut self, paused: bool) {
-        self.source
-            .set_state(if paused {
-                gst::State::Paused
-            } else {
-                gst::State::Playing
-            })
-            .unwrap(/* state was changed in ctor; state errors caught there */);
-
-        // Set restart_stream flag to make the stream restart on the next Message::NextFrame
-        if self.is_eos && !paused {
-            self.restart_stream = true;
-        }
-    }
-
-    pub(crate) fn paused(&self) -> bool {
-        self.source.state(gst::ClockTime::ZERO).1 == gst::State::Paused
-    }
-
-    /// Syncs audio with video when there is (inevitably) latency presenting the frame.
-    pub(crate) fn set_av_offset(&mut self, offset: Duration) {
-        if self.sync_av {
-            self.sync_av_counter += 1;
-            self.sync_av_avg = self.sync_av_avg * (self.sync_av_counter - 1) / self.sync_av_counter
-                + offset.as_nanos() as u64 / self.sync_av_counter;
-            if self.sync_av_counter % 128 == 0 {
-                self.source
-                    .set_property("av-offset", -(self.sync_av_avg as i64));
-            }
-        }
-    }
-}
-
-/// A multimedia video loaded from a URI (e.g., a local file path or HTTP stream).
-#[derive(Debug)]
-pub struct Video(pub(crate) RwLock<Internal>);
-
-impl Drop for Video {
-    fn drop(&mut self) {
-        let inner = self.0.get_mut().expect("failed to lock");
-
-        inner
-            .source
-            .set_state(gst::State::Null)
-            .expect("failed to set state");
-
-        inner.alive.store(false, Ordering::SeqCst);
-        if let Some(worker) = inner.worker.take() {
-            worker.join().expect("failed to stop video thread");
-        }
-    }
+pub struct Video {
+    id: u64,
+    player: MpvPlayer,
+    renderer: mpv::render::SwRenderer,
+    slot: Arc<mpv::render::FrameSlot>,
+    alive: Arc<AtomicBool>,
+    path: url::Url,
+    subtitle_url: Option<url::Url>,
+    looping: AtomicBool,
+    is_eos: AtomicBool,
+    /// Set once `EndOfStream` has been reported for the current EOS.
+    eos_notified: AtomicBool,
 }
 
 impl Video {
-    /// Create a new video player from a given video which loads from `uri`.
-    /// Note that live sources will report the duration to be zero.
-    pub fn new(uri: &url::Url, suburi: Option<url::Url>) -> Result<Self, Error> {
-        gst::init()?;
-
-        let mut subtitle_pipe = String::new();
-        if let Some(lyrics) = suburi {
-            subtitle_pipe = format!("suburi=\"{}\" subtitle-font-desc Sans, 18 text-sink=\"appsink name=iced_text sync=true caps=text/x-raw\"", lyrics);
-        }
-        let pipeline = format!("playbin uri=\"{}\" {} video-sink=\"videoscale ! videoconvert ! appsink name=iced_video drop=true caps=video/x-raw,format=NV12,pixel-aspect-ratio=1/1\"", uri.as_str(), subtitle_pipe.as_str());
-        let pipeline = gst::parse::launch(pipeline.as_ref())?
-            .downcast::<gst::Pipeline>()
-            .map_err(|_| Error::Cast)?;
-
-        let video_sink: gst::Element = pipeline.property("video-sink");
-        let pad = video_sink.pads().first().cloned().unwrap();
-        let pad = pad.dynamic_cast::<gst::GhostPad>().unwrap();
-        let bin = pad
-            .parent_element()
-            .unwrap()
-            .downcast::<gst::Bin>()
-            .unwrap();
-        let video_sink = bin.by_name("iced_video").unwrap();
-        let video_sink = video_sink.downcast::<gst_app::AppSink>().unwrap();
-        if subtitle_pipe.len() > 0 {
-            let text_sink: gst::Element = pipeline.property("text-sink");
-            //let pad = text_sink.pads().get(0).cloned().unwrap();
-            let text_sink = text_sink.downcast::<gst_app::AppSink>().unwrap();
-
-            Self::from_gst_pipeline(pipeline, video_sink, Some(text_sink))
-        } else {
-            Self::from_gst_pipeline(pipeline, video_sink, None)
-        }
+    /// Create a player for `uri` and start playback.
+    ///
+    /// `subtitle` is an optional external subtitle file.
+    pub fn new(uri: &url::Url, subtitle: Option<url::Url>) -> Result<Self, Error> {
+        let player = MpvPlayer::new()?;
+        Self::new_with_core(player, uri, subtitle)
     }
 
-    /// Creates a new video based on an existing GStreamer pipeline and appsink.
-    /// Expects an `appsink` plugin with `caps=video/x-raw,format=NV12`.
+    /// Build the model around an already-created core.
     ///
-    /// An optional `text_sink` can be provided, which enables subtitle messages
-    /// to be emitted.
-    ///
-    /// **Note:** Many functions of [`Video`] assume a `playbin` pipeline.
-    /// Non-`playbin` pipelines given here may not have full functionality.
-    pub fn from_gst_pipeline(
-        pipeline: gst::Pipeline,
-        video_sink: gst_app::AppSink,
-        text_sink: Option<gst_app::AppSink>,
+    /// Tests use this to run with `ao=null` (no sound card needed); the
+    /// core is otherwise created exactly like [`Video::new`].
+    pub(crate) fn new_with_core(
+        player: MpvPlayer,
+        uri: &url::Url,
+        subtitle: Option<url::Url>,
     ) -> Result<Self, Error> {
-        gst::init()?;
-        static NEXT_ID: AtomicU64 = AtomicU64::new(0);
-        let id = NEXT_ID.fetch_add(1, Ordering::SeqCst);
-
-        let pad = video_sink.pads().first().cloned().unwrap();
-
-        pipeline.set_state(gst::State::Playing)?;
-
-        // wait for up to 5 seconds until the decoder gets the source capabilities
-        pipeline.state(gst::ClockTime::from_seconds(5)).0?;
-
-        // extract resolution and framerate
-        // TODO(jazzfool): maybe we want to extract some other information too?
-        let caps = pad.current_caps().ok_or(Error::Caps)?;
-        let s = caps.structure(0).ok_or(Error::Caps)?;
-        let width = s.get::<i32>("width").map_err(|_| Error::Caps)?;
-        let height = s.get::<i32>("height").map_err(|_| Error::Caps)?;
-        // resolution should be mod4
-        let width = ((width + 4 - 1) / 4) * 4;
-        let framerate = s
-            .get::<gst::Fraction>("framerate")
-            .map_err(|_| Error::Caps)?;
-        let framerate = framerate.numer() as f64 / framerate.denom() as f64;
-
-        if framerate.is_nan()
-            || framerate.is_infinite()
-            || framerate < 0.0
-            || framerate.abs() < f64::EPSILON
-        {
-            return Err(Error::Framerate(framerate));
-        }
-
-        let duration = Duration::from_nanos(
-            pipeline
-                .query_duration::<gst::ClockTime>()
-                .map(|duration| duration.nseconds())
-                .unwrap_or(0),
-        );
-
-        let sync_av = pipeline.has_property("av-offset", None);
-
-        // NV12 = 12bpp
-        let frame = Arc::new(Mutex::new(vec![
-            0u8;
-            (width as usize * height as usize * 3)
-                .div_ceil(2)
-        ]));
-        let upload_frame = Arc::new(AtomicBool::new(false));
-        let alive = Arc::new(AtomicBool::new(true));
-        let last_frame_time = Arc::new(Mutex::new(Instant::now()));
-
-        let frame_ref = Arc::clone(&frame);
-        let upload_frame_ref = Arc::clone(&upload_frame);
-        let alive_ref = Arc::clone(&alive);
-        let last_frame_time_ref = Arc::clone(&last_frame_time);
-
-        let subtitle_text = Arc::new(Mutex::new(None));
-        let upload_text = Arc::new(AtomicBool::new(false));
-        let subtitle_text_ref = Arc::clone(&subtitle_text);
-        let upload_text_ref = Arc::clone(&upload_text);
-
-        let pipeline_ref = pipeline.clone();
-
-        let worker = std::thread::spawn(move || {
-            let mut clear_subtitles_at = None;
-
-            while alive_ref.load(Ordering::Acquire) {
-                if let Err(gst::FlowError::Error) = (|| -> Result<(), gst::FlowError> {
-                    let sample =
-                        if pipeline_ref.state(gst::ClockTime::ZERO).1 != gst::State::Playing {
-                            video_sink
-                                .try_pull_preroll(gst::ClockTime::from_mseconds(16))
-                                .ok_or(gst::FlowError::Eos)?
-                        } else {
-                            video_sink
-                                .try_pull_sample(gst::ClockTime::from_mseconds(16))
-                                .ok_or(gst::FlowError::Eos)?
-                        };
-
-                    *last_frame_time_ref
-                        .lock()
-                        .map_err(|_| gst::FlowError::Error)? = Instant::now();
-
-                    let buffer = sample.buffer().ok_or(gst::FlowError::Error)?;
-                    let pts = buffer.pts().unwrap_or_default();
-                    let map = buffer.map_readable().map_err(|_| gst::FlowError::Error)?;
-
-                    let mut frame = frame_ref.lock().map_err(|_| gst::FlowError::Error)?;
-                    let frame_len = frame.len();
-                    frame.copy_from_slice(&map.as_slice()[..frame_len]);
-
-                    upload_frame_ref.swap(true, Ordering::SeqCst);
-
-                    if let Some(at) = clear_subtitles_at {
-                        if pts >= at {
-                            *subtitle_text_ref
-                                .lock()
-                                .map_err(|_| gst::FlowError::Error)? = None;
-                            upload_text_ref.store(true, Ordering::SeqCst);
-                            clear_subtitles_at = None;
-                        }
-                    }
-
-                    let text = text_sink
-                        .as_ref()
-                        .and_then(|sink| sink.try_pull_sample(gst::ClockTime::from_seconds(0)));
-                    if let Some(text) = text {
-                        let text = text.buffer().ok_or(gst::FlowError::Error)?;
-                        let pts = text.pts().unwrap_or_default();
-                        let duration = text.duration().unwrap_or(gst::ClockTime::ZERO);
-                        let map = text.map_readable().map_err(|_| gst::FlowError::Error)?;
-
-                        let text = html_escape::decode_html_entities(
-                            std::str::from_utf8(map.as_slice())
-                                .map_err(|_| gst::FlowError::Error)?,
-                        )
-                        .to_string();
-                        *subtitle_text_ref
-                            .lock()
-                            .map_err(|_| gst::FlowError::Error)? = Some(text);
-                        upload_text_ref.store(true, Ordering::SeqCst);
-
-                        clear_subtitles_at = Some(pts + duration);
-                    }
-
-                    Ok(())
-                })() {
-                    log::error!("error pulling frame");
+        let subtitle_url = subtitle.clone();
+        if let Some(sub) = subtitle {
+            if let Ok(p) = sub.to_file_path() {
+                if let Some(s) = p.to_str() {
+                    player.set_subtitle_file(s).map_err(|e| {
+                        log::warn!("failed to set subtitle {s}: {e}");
+                        Error::Mpv(e)
+                    })?;
                 }
             }
-        });
+        }
+        let renderer = mpv::render::SwRenderer::spawn(&player)?;
+        let slot = renderer.slot();
+        // Hold playback until the file is ready so it cannot run past the
+        // end while we wait, then start from the beginning.
+        player.pause()?;
+        // Drop stale events (e.g. the core-start IDLE) so the load events
+        // we wait on below are fresh.
+        player.poll_events();
+        player.loadfile(&uri.to_string(), "replace")?;
+        let outcome = player.wait_file_loaded(LOAD_TIMEOUT_SECS);
+        if !matches!(outcome, mpv::LoadOutcome::Loaded) {
+            log::error!("video load failed for {uri}: {outcome:?}");
+            return Err(Error::LoadFailed(outcome.as_str().to_string()));
+        }
+        player.play()?;
+        // Let the pipeline settle: block briefly until the first rendered
+        // frame is published (or the deadline expires). Property access in
+        // the first moments after load races the render worker otherwise.
+        let start = std::time::Instant::now();
+        while slot.snapshot().is_none()
+            && start.elapsed() < std::time::Duration::from_millis(FRAME_SETTLE_MS)
+        {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
 
-        Ok(Video(RwLock::new(Internal {
-            id,
-
-            bus: pipeline.bus().unwrap(),
-            source: pipeline,
-            alive,
-            worker: Some(worker),
-
-            width,
-            height,
-            framerate,
-            duration,
-            speed: 1.0,
-            sync_av,
-
-            frame,
-            upload_frame,
-            last_frame_time,
-            looping: false,
-            is_eos: false,
-            restart_stream: false,
-            sync_av_avg: 0,
-            sync_av_counter: 0,
-
-            subtitle_text,
-            upload_text,
-
-            #[cfg(not(feature = "wgpu"))]
-            handle_opt: None,
-        })))
+        let subtitle: Option<url::Url> = subtitle_url;
+        Ok(Self {
+            id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
+            player,
+            renderer,
+            slot,
+            alive: Arc::new(AtomicBool::new(true)),
+            path: uri.clone(),
+            subtitle_url: subtitle,
+            looping: AtomicBool::new(false),
+            is_eos: AtomicBool::new(false),
+            eos_notified: AtomicBool::new(false),
+        })
     }
 
-    pub(crate) fn read(&self) -> impl Deref<Target = Internal> + '_ {
-        self.0.read().expect("lock")
+    /// The path this video was loaded from.
+    pub fn path(&self) -> &url::Url {
+        &self.path
     }
 
-    pub(crate) fn write(&self) -> impl DerefMut<Target = Internal> + '_ {
-        self.0.write().expect("lock")
+    /// The external subtitle URL, if any.
+    pub fn subtitle_url(&self) -> Option<url::Url> {
+        self.subtitle_url.clone()
     }
 
-    pub(crate) fn get_mut(&mut self) -> impl DerefMut<Target = Internal> + '_ {
-        self.0.get_mut().expect("lock")
+    /// Stable id for the pipeline texture slot.
+    pub fn id(&self) -> u64 {
+        self.id
     }
 
-    /// Get the size/resolution of the video as `(width, height)`.
-    pub fn size(&self) -> (i32, i32) {
-        (self.read().width, self.read().height)
+    /// Shared liveness flag (pipeline trims dead entries).
+    pub fn alive(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.alive)
     }
 
-    /// Get the framerate of the video as frames per second.
-    pub fn framerate(&self) -> f64 {
-        self.read().framerate
+    /// The shared frame slot (latest sw-rendered BGRA frame).
+    pub fn frame_slot(&self) -> Arc<mpv::render::FrameSlot> {
+        Arc::clone(&self.slot)
     }
 
-    /// Set the volume multiplier of the audio.
-    /// `0.0` = 0% volume, `1.0` = 100% volume.
-    ///
-    /// This uses a linear scale, for example `0.5` is perceived as half as loud.
-    pub fn set_volume(&mut self, volume: f64) {
-        self.get_mut().source.set_property("volume", volume);
-        self.set_muted(self.muted()); // for some reason gstreamer unmutes when changing volume?
-    }
+    // -- transport ----------------------------------------------------------
 
-    /// Get the volume multiplier of the audio.
-    pub fn volume(&self) -> f64 {
-        self.read().source.property("volume")
-    }
-
-    /// Set if the audio is muted or not, without changing the volume.
-    pub fn set_muted(&mut self, muted: bool) {
-        self.get_mut().source.set_property("mute", muted);
-    }
-
-    /// Get if the audio is muted or not.
-    pub fn muted(&self) -> bool {
-        self.read().source.property("mute")
-    }
-
-    /// Get if the stream ended or not.
-    pub fn eos(&self) -> bool {
-        self.read().is_eos
-    }
-
-    /// Get if the media will loop or not.
-    pub fn looping(&self) -> bool {
-        self.read().looping
-    }
-
-    /// Set if the media will loop or not.
-    pub fn set_looping(&mut self, looping: bool) {
-        self.get_mut().looping = looping;
-    }
-
-    /// Set if the media is paused or not.
-    pub fn set_paused(&mut self, paused: bool) {
-        self.get_mut().set_paused(paused)
-    }
-
-    /// Get if the media is paused or not.
     pub fn paused(&self) -> bool {
-        self.read().paused()
+        self.player.is_paused().ok().flatten().unwrap_or(false)
     }
 
-    /// Jumps to a specific position in the media.
-    /// Passing `true` to the `accurate` parameter will result in more accurate seeking,
-    /// however, it is also slower. For most seeks (e.g., scrubbing) this is not needed.
-    pub fn seek(&mut self, position: impl Into<Position>, accurate: bool) -> Result<(), Error> {
-        self.get_mut().seek(position, accurate)
-    }
-
-    /// Set the playback speed of the media.
-    /// The default speed is `1.0`.
-    pub fn set_speed(&mut self, speed: f64) -> Result<(), Error> {
-        self.get_mut().set_speed(speed)
-    }
-
-    /// Get the current playback speed.
-    pub fn speed(&self) -> f64 {
-        self.read().speed
-    }
-
-    /// Get the current playback position in time.
-    pub fn position(&self) -> Duration {
-        Duration::from_nanos(
-            self.read()
-                .source
-                .query_position::<gst::ClockTime>()
-                .map_or(0, |pos| pos.nseconds()),
-        )
-    }
-
-    /// Get the media duration.
-    pub fn duration(&self) -> Duration {
-        self.read().duration
-    }
-
-    /// Restarts a stream; seeks to the first frame and unpauses, sets the `eos` flag to false.
-    pub fn restart_stream(&mut self) -> Result<(), Error> {
-        self.get_mut().restart_stream()
-    }
-
-    /// Set the subtitle URL to display.
-    pub fn set_subtitle_url(&mut self, url: &url::Url) -> Result<(), Error> {
-        let paused = self.paused();
-        let mut inner = self.get_mut();
-        inner.source.set_state(gst::State::Ready)?;
-        inner.source.set_property("suburi", url.as_str());
-        inner.set_paused(paused);
+    pub fn set_paused(&self, paused: bool) -> Result<(), Error> {
+        if paused {
+            self.player.pause()?;
+        } else {
+            self.player.play()?;
+            // Resuming after end-of-file restarts from the beginning.
+            if self.is_eos.swap(false, Ordering::SeqCst) {
+                self.player.seek_absolute(0.0)?;
+            }
+        }
+        self.eos_notified.store(false, Ordering::SeqCst);
         Ok(())
     }
 
-    /// Get the current subtitle URL.
-    pub fn subtitle_url(&self) -> Option<url::Url> {
-        url::Url::parse(&self.read().source.property::<String>("suburi")).ok()
+    pub fn position(&self) -> Duration {
+        self.player
+            .time_pos()
+            .unwrap_or(Some(0.0))
+            .map(|s| Duration::try_from_secs_f64(s).unwrap_or_default())
+            .unwrap_or_default()
     }
 
-    /// Get the underlying GStreamer pipeline.
-    pub fn pipeline(&self) -> gst::Pipeline {
-        self.read().source.clone()
+    pub fn duration(&self) -> Duration {
+        self.player
+            .duration()
+            .unwrap_or(Some(0.0))
+            .map(|s| Duration::try_from_secs_f64(s).unwrap_or_default())
+            .unwrap_or_default()
     }
 
-    /// Generates a list of thumbnails based on a set of positions in the media, downscaled by a given factor.
-    ///
-    /// Slow; only needs to be called once for each instance.
-    /// It's best to call this at the very start of playback, otherwise the position may shift.
-    pub fn thumbnails<I>(
-        &mut self,
-        positions: I,
-        downscale: NonZeroU8,
-    ) -> Result<Vec<img::Handle>, Error>
-    where
-        I: IntoIterator<Item = Position>,
-    {
-        let downscale = u8::from(downscale) as u32;
+    /// Seek to an absolute position. `accurate` is accepted for API
+    /// compatibility (mpv seeks are accurate by default).
+    pub fn seek(&self, position: Duration, _accurate: bool) -> Result<(), Error> {
+        self.player.seek_absolute(position.as_secs_f64())?;
+        self.eos_notified.store(false, Ordering::SeqCst);
+        Ok(())
+    }
 
-        let paused = self.paused();
-        let muted = self.muted();
-        let pos = self.position();
+    // -- volume / mute (app scale 0.0..=1.0) --------------------------------
 
-        self.set_paused(false);
-        self.set_muted(true);
+    pub fn volume(&self) -> f64 {
+        (self.player.volume().unwrap_or(Some(100.0)).unwrap_or(100.0) / 100.0).clamp(0.0, 1.0)
+    }
 
-        let out = {
-            let inner = self.read();
-            let width = inner.width;
-            let height = inner.height;
-            positions
-                .into_iter()
-                .map(|pos| {
-                    inner.seek(pos, true)?;
-                    inner.upload_frame.store(false, Ordering::SeqCst);
-                    while !inner.upload_frame.load(Ordering::SeqCst) {
-                        std::hint::spin_loop();
-                    }
-                    Ok(img::Handle::from_rgba(
-                        inner.width as u32 / downscale,
-                        inner.height as u32 / downscale,
-                        yuv_to_rgba(
-                            &inner.frame.lock().map_err(|_| Error::Lock)?,
-                            width as _,
-                            height as _,
-                            downscale,
-                        ),
-                    ))
-                })
-                .collect()
+    pub fn set_volume(&self, volume: f64) -> Result<(), Error> {
+        self.player
+            .set_volume((volume.clamp(0.0, 1.0) * 100.0) as f64)?;
+        Ok(())
+    }
+
+    pub fn muted(&self) -> bool {
+        self.player.muted().ok().flatten().unwrap_or(false)
+    }
+
+    pub fn set_muted(&self, muted: bool) -> Result<(), Error> {
+        self.player.set_muted(muted)?;
+        Ok(())
+    }
+
+    /// Toggle mute; returns the new state.
+    pub fn toggle_muted(&self) -> bool {
+        let m = !self.muted();
+        if let Err(e) = self.set_muted(m) {
+            log::warn!("failed to toggle mute: {e}");
+        }
+        self.muted()
+    }
+
+    // -- looping ------------------------------------------------------------
+
+    pub fn looping(&self) -> bool {
+        self.looping.load(Ordering::SeqCst)
+    }
+
+    pub fn set_looping(&self, looping: bool) {
+        self.looping.store(looping, Ordering::SeqCst);
+    }
+
+    pub fn is_eos(&self) -> bool {
+        self.is_eos.load(Ordering::SeqCst)
+    }
+
+    /// `true` exactly once per end-of-file: on the first call after EOS
+    /// until the next seek / resume / start.
+    pub fn take_eos_event(&self) -> bool {
+        self.is_eos.load(Ordering::SeqCst)
+            && self
+                .eos_notified
+                .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok()
+    }
+
+    // -- tracks ---------------------------------------------------------------
+
+    /// All tracks (audio / video / subtitle) of the loaded file.
+    pub fn tracks(&self) -> Result<Vec<Track>, Error> {
+        Ok(self.player.tracks()?)
+    }
+
+    /// Select the `index`-th audio track.
+    pub fn select_audio(&self, index: usize) -> Result<(), Error> {
+        self.select_nth(TrackKind::Audio, index)
+    }
+
+    /// Select the `index`-th subtitle track (or disable when `index == 0`
+    /// and there is no such track).
+    pub fn select_subtitle(&self, index: usize) -> Result<(), Error> {
+        self.select_nth(TrackKind::Sub, index)
+    }
+
+    fn select_nth(&self, kind: TrackKind, index: usize) -> Result<(), Error> {
+        let tracks = self.player.tracks()?;
+        let track = tracks
+            .iter()
+            .filter(|t| t.kind == kind)
+            .nth(index)
+            .ok_or(Error::NoTrack)?;
+        self.player.select_track(kind, track.id)?;
+        Ok(())
+    }
+
+    /// Index of the currently selected audio track (in the audio-track list).
+    pub fn current_audio(&self) -> i32 {
+        self.current_index(TrackKind::Audio)
+    }
+
+    /// Index of the currently selected subtitle track.
+    pub fn current_subtitle(&self) -> i32 {
+        self.current_index(TrackKind::Sub)
+    }
+
+    fn current_index(&self, kind: TrackKind) -> i32 {
+        let Ok(tracks) = self.player.tracks() else {
+            return -1;
         };
+        let mut idx = 0i32;
+        for t in tracks {
+            if t.kind == kind {
+                if t.selected {
+                    return idx;
+                }
+                idx += 1;
+            }
+        }
+        -1
+    }
 
-        self.set_paused(paused);
-        self.set_muted(muted);
-        self.seek(pos, true)?;
+    // -- events ---------------------------------------------------------------
 
-        out
+    /// Drain pending mpv events and maintain EOS / looping state.
+    ///
+    /// Must be called from a single thread (the UI update loop).
+    pub fn handle_events(&self) -> Vec<mpv::MpvEvent> {
+        let events = self.player.poll_events();
+        for e in &events {
+            if e.id == mpv::MPV_EVENT_START_FILE {
+                self.is_eos.store(false, Ordering::SeqCst);
+                self.eos_notified.store(false, Ordering::SeqCst);
+            }
+            if e.is_end_file() {
+                self.is_eos.store(true, Ordering::SeqCst);
+                if self.looping.load(Ordering::SeqCst) && e.is_end_of_file() {
+                    if self.player.seek_absolute(0.0).is_ok() {
+                        let _ = self.player.play();
+                        self.is_eos.store(false, Ordering::SeqCst);
+                    }
+                }
+            }
+            if e.is_shutdown() {
+                break;
+            }
+        }
+        events
     }
 }
 
-pub(crate) fn yuv_to_rgba(yuv: &[u8], width: u32, height: u32, downscale: u32) -> Vec<u8> {
-    let uv_start = width * height;
-    let mut rgba = vec![];
+impl Drop for Video {
+    fn drop(&mut self) {
+        self.alive.store(false, Ordering::SeqCst);
+        // Drop order matters: stop the render worker (frees the render
+        // context on its own thread) before terminating the core.
+        self.renderer.shutdown();
+        let _ = self.player.stop();
+    }
+}
 
-    for y in 0..height / downscale {
-        for x in 0..width / downscale {
-            let x_src = x * downscale;
-            let y_src = y * downscale;
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+//
+// These run against the real libmpv headlessly (no display, `ao=null` is
+// not needed since audio output is optional for a video-only clip). They are
+// skipped if `ffmpeg` is unavailable (CI without codec tooling).
 
-            let uv_i = uv_start + width * (y_src / 2) + x_src / 2 * 2;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-            let y = yuv[(y_src * width + x_src) as usize] as f32;
-            let u = yuv[uv_i as usize] as f32;
-            let v = yuv[(uv_i + 1) as usize] as f32;
-
-            let r = 1.164 * (y - 16.0) + 1.596 * (v - 128.0);
-            let g = 1.164 * (y - 16.0) - 0.813 * (v - 128.0) - 0.391 * (u - 128.0);
-            let b = 1.164 * (y - 16.0) + 2.018 * (u - 128.0);
-
-            rgba.push(r as u8);
-            rgba.push(g as u8);
-            rgba.push(b as u8);
-            rgba.push(0xFF as u8);
+    /// Generate a 3-second 320x240 H.264 clip; returns `None` if ffmpeg is
+    /// missing (test skipped).
+    fn test_clip() -> Option<std::path::PathBuf> {
+        let path = std::env::temp_dir().join("mb_video_model_test.mp4");
+        if path.exists() {
+            return Some(path);
         }
+        let ok = std::process::Command::new("ffmpeg")
+            .args([
+                "-y",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc=duration=3:size=320x240:rate=10",
+                "-pix_fmt",
+                "yuv420p",
+                "-c:v",
+                "libx264",
+                "-an",
+            ])
+            .arg(&path)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        ok.then(|| path.clone()).filter(|_| path.exists())
     }
 
-    rgba
+    #[test]
+    fn model_lifecycle_and_controls() {
+        let Some(path) = test_clip() else {
+            eprintln!("skip: no ffmpeg");
+            return;
+        };
+        let uri = url::Url::from_file_path(&path).expect("uri");
+        // `ao=null`: playback must not depend on a working sound card.
+        let player = MpvPlayer::new_with_options(&[("ao", "null")]).expect("init");
+        let video = Video::new_with_core(player, &uri, None).expect("open video");
+
+        // `new()` waits for the load event, so metadata is available now.
+        let dur = video.duration().as_secs_f64();
+        assert!((1.0..=3.5).contains(&dur), "duration={dur}");
+
+        // Pause / resume.
+        video.set_paused(true).expect("pause");
+        assert!(video.paused());
+        let p1 = video.position().as_secs_f64();
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        assert!((video.position().as_secs_f64() - p1).abs() < 0.2);
+        video.set_paused(false).expect("resume");
+        assert!(!video.paused());
+
+        // Seek.
+        video
+            .seek(std::time::Duration::from_secs_f64(1.0), true)
+            .expect("seek");
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        let pos = video.position().as_secs_f64();
+        assert!((0.0..=2.5).contains(&pos), "pos={pos}");
+
+        // Volume roundtrip (0..1 scale).
+        video.set_volume(0.4).expect("volume");
+        assert!((video.volume() - 0.4).abs() < 0.05);
+        video.set_volume(1.0).expect("volume");
+
+        // Mute roundtrip (`toggle_muted` returns the new state).
+        assert!(video.toggle_muted());
+        assert!(video.muted());
+        assert!(!video.toggle_muted());
+        assert!(!video.muted());
+
+        // Tracks: at least one video track for this clip.
+        let tracks = video.tracks().expect("tracks");
+        assert!(tracks.iter().any(|t| t.kind == TrackKind::Video));
+
+        // A frame should be published shortly after start.
+        let slot = video.frame_slot();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let mut frame = None;
+        while std::time::Instant::now() < deadline && frame.is_none() {
+            let _ = slot.wait_for_new(std::time::Duration::from_millis(100));
+            if let Some(f) = slot.snapshot() {
+                if f.bytes.iter().any(|b| *b != 0) {
+                    frame = Some(f);
+                }
+            }
+        }
+        let f = frame.expect("no frame published");
+        assert_eq!(f.width, 320);
+        assert_eq!(f.height, 240);
+
+        drop(video);
+    }
 }

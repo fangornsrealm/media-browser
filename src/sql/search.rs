@@ -1064,6 +1064,16 @@ pub fn search_items(
             if !data.special_files_contains(newfiles[i].filepath.clone()) {
                 data.special_files_insert(newfiles[i].filepath.clone());
                 if let Ok(metadata) = std::fs::metadata(newfiles[i].filepath.clone()) {
+                    // The search row only carries the searched columns; load
+                    // the full metadata (poster, thumb, directors, actors,
+                    // tags, ...) so search results match folder browsing.
+                    let pathstr = crate::parsers::osstr_to_string(
+                        newfiles[i].filepath.clone().into_os_string(),
+                    );
+                    let full = video(sql_connection.clone(), &pathstr, &data);
+                    if !full.name.is_empty() || !full.title.is_empty() {
+                        newmetadata[i] = full;
+                    }
                     let item = crate::parsers::item_from_nfo(
                         PathBuf::new(),
                         &mut newmetadata[i],
@@ -1084,6 +1094,15 @@ pub fn search_items(
             if !data.special_files_contains(newfiles[i].filepath.clone()) {
                 data.special_files_insert(newfiles[i].filepath.clone());
                 if let Ok(metadata) = std::fs::metadata(newfiles[i].filepath.clone()) {
+                    // Full metadata (poster, thumb, album, artist,
+                    // album artist, composer, genre, chapters) — see above.
+                    let pathstr = crate::parsers::osstr_to_string(
+                        newfiles[i].filepath.clone().into_os_string(),
+                    );
+                    let full = audio(sql_connection.clone(), &pathstr, &data);
+                    if !full.name.is_empty() || !full.title.is_empty() {
+                        newmetadata[i] = full;
+                    }
                     let item = crate::parsers::item_from_audiotags(
                         newfiles[i].filepath.clone(),
                         &data,
@@ -1101,15 +1120,21 @@ pub fn search_items(
     if search.image {
         let (mut newmetadata, newfiles) = search_image(sql_connection.clone(), &search);
         for i in 0..newfiles.len() {
+            // file_type: 1 image (2 video, 3 audio)
             if newfiles[i].file_type != 1 {
                 continue;
             }
             if !data.special_files_contains(newfiles[i].filepath.clone()) {
-                if newfiles[i].file_type != 3 {
-                    continue;
-                }
                 data.special_files_insert(newfiles[i].filepath.clone());
                 if let Ok(metadata) = std::fs::metadata(newfiles[i].filepath.clone()) {
+                    // Full metadata (thumb, photographer, lense, ...) — see above.
+                    let pathstr = crate::parsers::osstr_to_string(
+                        newfiles[i].filepath.clone().into_os_string(),
+                    );
+                    let full = image(sql_connection.clone(), &pathstr, &data);
+                    if !full.name.is_empty() || !full.title.is_empty() {
+                        newmetadata[i] = full;
+                    }
                     let item = crate::parsers::item_from_exif(
                         newfiles[i].filepath.clone(),
                         &mut newmetadata[i],

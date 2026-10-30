@@ -6,6 +6,7 @@
 
 //use crate::fl;
 
+use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Condvar, Mutex};
 
 #[derive(Clone, Copy, Debug)]
@@ -109,3 +110,23 @@ impl Drop for Controller {
         }
     }
 }
+
+// Identity-based equality/hashing: a `Controller` is a handle to shared
+// `ControllerInner` state, so two controllers are the same iff they point at
+// the same inner (and agree on `primary`). This lets a `Controller` be used
+// as part of `iced_futures::Subscription::run_with` data, which requires
+// `Hash`.
+impl Hash for Controller {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.primary.hash(state);
+        Arc::as_ptr(&self.inner).hash(state);
+    }
+}
+
+impl PartialEq for Controller {
+    fn eq(&self, other: &Self) -> bool {
+        self.primary == other.primary && Arc::ptr_eq(&self.inner, &other.inner)
+    }
+}
+
+impl Eq for Controller {}

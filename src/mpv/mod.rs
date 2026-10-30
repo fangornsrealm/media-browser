@@ -1,44 +1,32 @@
 //! libmpv integration for media-browser.
 //!
-//! This module provides a hand-written FFI binding to the libmpv *client*
-//! API ([`ffi`]) and a safe, ergonomic wrapper over it ([`player`]).
-//!
-//! It is the **unblocked** portion of the libmpv migration described in
-//! `docs/PLAN-libcosmic-1.0-wgpu-28-libmpv.md` (§7.1 / §7.2): it covers
-//! playback control, properties, tracks, and the event loop, and is fully
-//! testable headless against the installed libmpv (v0.41.0).
-//!
-//! # What is deliberately excluded
-//!
-//! The **render-context path** (mpv's Vulkan / OpenGL sub-API, plan §7.3) is
-//! **blocked by R1**: wgpu 28 (shipped by libcosmic 1.0) exposes no public
-//! API to hand mpv a `VkInstance` / `VkDevice` / `VkQueue`, and no native
-//! way to import mpv's rendered `VkImage` into a wgpu texture. The FFI
-//! declarations for that path are present in [`ffi`] so the surface stays
-//! complete, but the safe wrapper here intentionally does not drive it. See
-//! the plan's Appendix B (Q2) for details and alternatives.
+//! Layout:
+//! - [`ffi`]: raw C bindings, verified against the installed libmpv 0.41
+//!   headers (core client API + the **sw** render API + node walker).
+//! - [`player`]: safe `MpvPlayer` wrapper (playback control, properties,
+//!   tracks, event queue). Fully testable headless.
+//! - [`render`]: sw-render worker thread that pulls frames from mpv into
+//!   `bgr0` (BGRA) buffers, which the wgpu [`crate::pipeline`] uploads and
+//!   composites. This is the "Vulkan route" of the migration plan: wgpu 28
+//!   does the GPU compositing, mpv supplies CPU-rendered frames — no
+//!   OpenGL/X11, no mpv Vulkan sub-API (which does not exist in 0.41).
 //!
 //! # Linking
 //!
-//! `build.rs` must emit `cargo:rustc-link-lib=dylib=mpv` for native targets
-//! so the symbols declared in [`ffi`] resolve at link time.
-//!
-//! # Feature gating
-//!
-//! Per plan §3.2 this module can be gated behind an `mpv` feature flag. Until
-//! that feature is added to `Cargo.toml` (and `lib.rs` opts in via
-//! `#[cfg(feature = "mpv")] mod mpv;`), this module is compiled
-//! unconditionally.
+//! `build.rs` emits `cargo:rustc-link-lib=dylib=mpv` so the symbols resolve
+//! against the system `libmpv` (Ubuntu `libmpv2` ≥ 0.41).
 
 pub mod ffi;
 pub mod player;
+pub mod render;
 
 // Re-export the safe API at the module root for convenient access.
-pub use player::{MpvError, MpvEvent, MpvPlayer, Track, TrackKind};
+pub use player::{LoadOutcome, MpvEvent, MpvPlayer, Track, TrackKind, language_name};
 
-// Re-export a curated set of the FFI surface (handles, structs, and the
-// event/status constants most often needed by callers).
+// Re-export the error type and a curated set of the FFI surface (handles,
+// structs, and the event/status constants most often needed by callers).
 pub use ffi::{
-    mpv_event, mpv_handle, mpv_node, mpv_render_context, mpv_render_param, MPV_ERROR_SUCCESS,
-    MPV_EVENT_END_FILE, MPV_EVENT_FILE_LOADED, MPV_EVENT_SHUTDOWN,
+    MPV_ERROR_SUCCESS, MPV_EVENT_END_FILE, MPV_EVENT_FILE_LOADED, MPV_EVENT_SHUTDOWN,
+    MPV_EVENT_START_FILE, MpvError, mpv_event, mpv_handle, mpv_node, mpv_render_context,
+    mpv_render_param,
 };

@@ -46,10 +46,10 @@ pub fn create_handle(pathstring: String) -> Handle {
 ///
 /// # Example
 ///
-/// ```no_run
-/// # use iced_widget::image::{self, Image};
-/// #
-/// let image = Image::<image::Handle>::new("resources/ferris.png");
+/// ```ignore
+/// use media_browser::image::image::{Image, Handle};
+///
+/// let image = Image::<Handle>::new(Handle::from_path("resources/ferris.png"));
 /// ```
 ///
 /// <img src="https://github.com/iced-rs/iced/blob/9712b319bb7a32848001b96bd84977430f14b623/examples/resources/ferris.png?raw=true" width="300">
@@ -127,10 +127,9 @@ where
     Renderer: cosmic::iced::core::image::Renderer<Handle = Handle>,
 {
     // The raw w/h of the underlying image
-    let image_size = {
-        let Size { width, height } = renderer.measure_image(handle);
-
-        Size::new(width as f32, height as f32)
+    let image_size = match renderer.measure_image(handle) {
+        Some(Size { width, height }) => Size::new(width as f32, height as f32),
+        None => Size::ZERO,
     };
 
     // The size to be available to the widget prior to `Shrink`ing
@@ -166,8 +165,10 @@ pub fn draw<Renderer, Handle>(
     Renderer: cosmic::iced::core::image::Renderer<Handle = Handle>,
     Handle: Clone + Hash,
 {
-    let Size { width, height } = renderer.measure_image(handle);
-    let image_size = Size::new(width as f32, height as f32);
+    let image_size = match renderer.measure_image(handle) {
+        Some(Size { width, height }) => Size::new(width as f32, height as f32),
+        None => return,
+    };
 
     let bounds = layout.bounds();
     let adjusted_fit = content_fit.fit(image_size, bounds.size());
@@ -184,14 +185,20 @@ pub fn draw<Renderer, Handle>(
             ..bounds
         };
 
-        renderer.draw_image(
-            handle.clone(),
+        let image = cosmic::iced::core::image::Image {
+            handle: handle.clone(),
             filter_method,
-            drawing_bounds + offset,
-            cosmic::iced::Radians::from(0.0),
-            1.0,
-            border_radius,
-        );
+            rotation: cosmic::iced::Radians::from(0.0),
+            border_radius: cosmic::iced::core::border::Radius {
+                top_left: border_radius[0],
+                top_right: border_radius[1],
+                bottom_right: border_radius[2],
+                bottom_left: border_radius[3],
+            },
+            opacity: 1.0,
+            snap: false,
+        };
+        renderer.draw_image(image, drawing_bounds + offset, bounds);
     };
 
     if adjusted_fit.width > bounds.width || adjusted_fit.height > bounds.height {
@@ -214,7 +221,7 @@ where
     }
 
     fn layout(
-        &self,
+        &mut self,
         _tree: &mut Tree,
         renderer: &Renderer,
         limits: &layout::Limits,

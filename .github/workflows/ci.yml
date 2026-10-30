@@ -35,21 +35,22 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install system dependencies
-        # GStreamer + glib are required by the gstreamer/gio/glib crates,
+        # libmpv is required by the media player (mpv FFI),
         # bzip2 + lzma by the compression features, xkbcommon/wayland by
-        # the libcosmic/winput UI stack.
+        # the libcosmic/winput UI stack. ffmpeg is used by the playback
+        # unit tests (they skip themselves when it is missing).
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential \
             pkg-config \
-            gstreamer1.0-dev \
-            gstreamer1.0-plugins-base \
+            libmpv-dev \
             libglib2.0-dev \
             libbzip2-dev \
             liblzma-dev \
             libxkbcommon-dev \
-            libwayland-dev
+            libwayland-dev \
+            ffmpeg
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable

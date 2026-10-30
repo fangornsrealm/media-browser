@@ -16,9 +16,9 @@ use cosmic::cosmic_theme;
 #[cfg(feature = "wayland")]
 use cosmic::iced::event::wayland::OutputEvent;
 use cosmic::iced::{
+    Size,
     clipboard::dnd::DndAction,
     keyboard::{Key, Modifiers},
-    Size,
 };
 use cosmic::widget::{self, menu::action::MenuAction, segmented_button, segmented_button::Entity};
 use notify_debouncer_full::notify::RecommendedWatcher;
@@ -232,10 +232,10 @@ pub enum NavMenuAction {
 }
 
 impl MenuAction for NavMenuAction {
-    type Message = cosmic::app::Message<Message>;
+    type Message = cosmic::action::Action<Message>;
 
     fn message(&self) -> Self::Message {
-        cosmic::app::Message::App(Message::NavMenuAction(*self))
+        cosmic::action::app(Message::NavMenuAction(*self))
     }
 }
 
@@ -256,7 +256,6 @@ pub enum Message {
     AudioVolume(f64),
     //SubtitleToggle,
     TextCode(usize),
-    MissingPlugin(gstreamer::Message),
     Fullscreen,
     Seek(f64),
     SeekRelative(f64),
@@ -404,7 +403,7 @@ pub enum Message {
     Recents,
     #[cfg(feature = "wayland")]
     OutputEvent(OutputEvent, WlOutput),
-    Cosmic(app::cosmic::Message),
+    Cosmic(app::Action),
     None,
 }
 

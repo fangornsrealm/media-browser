@@ -10,79 +10,15 @@ use cosmic::{
     iced::keyboard::{Key, Modifiers},
     //widget::menu::action::MenuAction,
 };
-pub use gstreamer as gst;
-//pub use gstreamer_app as gst_app;
 use crate::video::video::Video;
-use gstreamer::prelude::*;
-//use crate::video::video_player::VideoPlayer;
-/*
-use iced_video_player::{
-    gst::{self, prelude::*},
-    gst_app, gst_pbutils, Video, VideoPlayer,
-};
-*/
+
 use std::{
-    ffi::{CStr, CString},
     time::{Duration, Instant},
 };
 
 use crate::config::Config;
 
 static CONTROLS_TIMEOUT: Duration = Duration::new(2, 0);
-
-const GST_PLAY_FLAG_VIDEO: i32 = 1 << 0;
-const GST_PLAY_FLAG_AUDIO: i32 = 1 << 1;
-const GST_PLAY_FLAG_TEXT: i32 = 1 << 2;
-
-fn language_name(code: &str) -> Option<String> {
-    let code_c = CString::new(code).ok()?;
-    let name_c = unsafe {
-        //TODO: export this in gstreamer_tag
-        let name_ptr = gstreamer_tag::ffi::gst_tag_get_language_name(code_c.as_ptr());
-        if name_ptr.is_null() {
-            return None;
-        }
-        CStr::from_ptr(name_ptr)
-    };
-    let name = name_c.to_str().ok()?;
-    Some(name.to_string())
-}
-
-/*
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Action {
-    FileClose,
-    FileOpen,
-    Fullscreen,
-    PlayPause,
-    SeekBackward,
-    SeekForward,
-    WindowClose,
-}
-
-impl MenuAction for Action {
-    type Message = Message;
-
-    fn message(&self) -> Message {
-        match self {
-            Self::FileClose => Message::FileClose,
-            Self::FileOpen => Message::FileOpen,
-            Self::Fullscreen => Message::Fullscreen,
-            Self::PlayPause => Message::PlayPause,
-            Self::SeekBackward => Message::SeekRelative(-10.0),
-            Self::SeekForward => Message::SeekRelative(10.0),
-            Self::WindowClose => Message::WindowClose,
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct Flags {
-    config_handler: Option<cosmic_config::Config>,
-    config: Config,
-    url_opt: Option<url::Url>,
-}
-    */
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DropdownKind {
@@ -119,7 +55,6 @@ pub enum Message {
     SeekRelative(f64),
     SeekRelease,
     EndOfStream,
-    MissingPlugin,
     NewFrame,
     Reload,
     ShowControls,
@@ -204,8 +139,6 @@ impl VideoView {
                 subtitlepath = Some(subpathstr);
             }
         }
-        //TODO: this code came from iced_video_player::Video::new and has been modified to stop the pipeline on error
-        //TODO: remove unwraps and enable playback of files with only audio.
         let video = match super::video::Video::new(&videopath, subtitlepath) {
             Ok(ok) => ok,
             Err(error) => {
@@ -213,104 +146,40 @@ impl VideoView {
                 return;
             }
         };
-        /*
-        let video = {
-            gst::init().unwrap();
-
-            let pipeline = format!(
-                "playbin uri=\"{}\" video-sink=\"videoscale ! videoconvert ! appsink name=iced_video drop=true caps=video/x-raw,format=NV12,pixel-aspect-ratio=1/1\"",
-                videopath.as_str()
-            );
-            let pipeline = gst::parse::launch(pipeline.as_ref())
-                .unwrap()
-                .downcast::<gst::Pipeline>()
-                .map_err(|_| super::Error::Cast)
-                .unwrap();
-
-            let video_sink: gst::Element = pipeline.property("video-sink");
-            let pad = video_sink.pads().first().cloned().unwrap();
-            let pad = pad.dynamic_cast::<gst::GhostPad>().unwrap();
-            let bin = pad
-                .parent_element()
-                .unwrap()
-                .downcast::<gst::Bin>()
-                .unwrap();
-            let video_sink = bin.by_name("iced_video").unwrap();
-            let video_sink = video_sink.downcast::<gst_app::AppSink>().unwrap();
-
-            match Video::from_gst_pipeline(pipeline.clone(), video_sink, None) {
-                Ok(ok) => ok,
-                Err(err) => {
-                    log::warn!("failed to open {}: {err}", videopath);
-                    pipeline.set_state(gst::State::Null).unwrap();
-                    return;
-                }
-            }
-        };
-        */
 
         self.duration = video.duration().as_secs_f64();
-        let pipeline = video.pipeline();
         self.video_opt = Some(video);
 
-        let n_audio = pipeline.property::<i32>("n-audio");
-        self.audio_codes = Vec::with_capacity(n_audio as usize);
-        for i in 0..n_audio {
-            let tags: gst::TagList = pipeline.emit_by_name("get-audio-tags", &[&i]);
-            log::info!("audio stream {i}: {tags:?}");
-            self.audio_codes
-                .push(if let Some(title) = tags.get::<gst::tags::Title>() {
-                    title.get().to_string()
-                } else if let Some(language_code) = tags.get::<gst::tags::LanguageCode>() {
-                    let language_code = language_code.get();
-                    language_name(language_code).unwrap_or_else(|| language_code.to_string())
-                } else {
-                    format!("Audio #{i}")
-                });
-        }
+        // Populate the track lists from mpv's `track-list`.
+        let Some(video) = self.video_opt.as_ref() else {
+            return;
+        };
+        if let Ok(tracks) = video.tracks() {
+            let mut idx = 0usize;
+            self.audio_codes = tracks
+                .iter()
+                .filter(|t| t.kind == crate::mpv::TrackKind::Audio)
+                .map(|t| {
+                    let name = t.display_name("Audio", idx);
+                    idx += 1;
+                    name
+                })
+                .collect();
 
-        self.current_audio = pipeline.property::<i32>("current-audio");
+            let mut idx = 0usize;
+            self.text_codes = tracks
+                .iter()
+                .filter(|t| t.kind == crate::mpv::TrackKind::Sub)
+                .map(|t| {
+                    let name = t.display_name("Subtitle", idx);
+                    idx += 1;
+                    name
+                })
+                .collect();
 
-        let n_text = pipeline.property::<i32>("n-text");
-        self.text_codes = Vec::with_capacity(n_text as usize);
-        for i in 0..n_text {
-            let tags: gst::TagList = pipeline.emit_by_name("get-text-tags", &[&i]);
-            log::info!("text stream {i}: {tags:?}");
-            self.text_codes
-                .push(if let Some(title) = tags.get::<gst::tags::Title>() {
-                    title.get().to_string()
-                } else if let Some(language_code) = tags.get::<gst::tags::LanguageCode>() {
-                    let language_code = language_code.get();
-                    language_name(language_code).unwrap_or_else(|| language_code.to_string())
-                } else {
-                    format!("Subtitle #{i}")
-                });
+            self.current_audio = video.current_audio();
+            self.current_text = video.current_subtitle();
         }
-        self.current_text = pipeline.property::<i32>("current-text");
-
-        //TODO: Flags can be used to enable/disable subtitles
-        let flags_value = pipeline.property_value("flags");
-        println!("original flags {:?}", flags_value);
-        match flags_value.transform::<i32>() {
-            Ok(flags_transform) => match flags_transform.get::<i32>() {
-                Ok(mut flags) => {
-                    flags |= GST_PLAY_FLAG_VIDEO | GST_PLAY_FLAG_AUDIO | GST_PLAY_FLAG_TEXT;
-                    match gst::glib::Value::from(flags).transform_with_type(flags_value.type_()) {
-                        Ok(value) => pipeline.set_property("flags", value),
-                        Err(err) => {
-                            log::warn!("failed to transform int to flags: {err}");
-                        }
-                    }
-                }
-                Err(err) => {
-                    log::warn!("failed to get flags as int: {err}");
-                }
-            },
-            Err(err) => {
-                log::warn!("failed to transform flags to int: {err}");
-            }
-        }
-        println!("updated flags {:?}", pipeline.property_value("flags"));
     }
 
     pub fn update_controls(&mut self, in_use: bool) {
@@ -342,32 +211,71 @@ impl VideoView {
                 //TODO: cleanest way to close dropdowns
                 self.dropdown_opt = None;
 
-                if let Some(video) = &mut self.video_opt {
-                    video.set_paused(!video.paused());
+                if let Some(video) = &self.video_opt {
+                    if let Err(e) = video.set_paused(!video.paused()) {
+                        log::error!("failed to toggle pause: {e}");
+                    }
                     self.update_controls(true);
+                }
+            }
+            Message::AudioToggle => {
+                if let Some(video) = &self.video_opt {
+                    video.toggle_muted();
+                    self.update_controls(true);
+                }
+            }
+            Message::AudioVolume(val) => {
+                if let Some(video) = &self.video_opt {
+                    if let Err(e) = video.set_volume(val) {
+                        log::error!("failed to set volume: {e}");
+                    }
+                }
+            }
+            Message::AudioCode(val) => {
+                if let Some(video) = &self.video_opt {
+                    if let Err(e) = video.select_audio(val) {
+                        log::error!("failed to select audio track {val}: {e}");
+                    } else {
+                        self.current_audio = val as i32;
+                        self.dropdown_opt = None;
+                    }
+                }
+            }
+            Message::TextCode(val) => {
+                if let Some(video) = &self.video_opt {
+                    if let Err(e) = video.select_subtitle(val) {
+                        log::error!("failed to select subtitle track {val}: {e}");
+                    } else {
+                        self.current_text = val as i32;
+                        self.dropdown_opt = None;
+                    }
                 }
             }
             Message::Seek(secs) => {
                 //TODO: cleanest way to close dropdowns
                 self.dropdown_opt = None;
 
-                if let Some(video) = &mut self.video_opt {
+                if let Some(video) = &self.video_opt {
                     self.dragging = true;
                     self.position = secs;
-                    video.set_paused(true);
+                    let _ = video.set_paused(true);
                     let duration = Duration::try_from_secs_f64(self.position).unwrap_or_default();
-                    video.seek(duration, true).expect("seek");
-                    video.set_paused(false);
+                    if let Err(e) = video.seek(duration, true) {
+                        log::error!("seek failed: {e}");
+                    }
+                    let _ = video.set_paused(false);
                     self.dragging = false;
                 }
                 self.update_controls(true);
             }
             Message::SeekRelative(secs) => {
-                if let Some(video) = &mut self.video_opt {
+                if let Some(video) = &self.video_opt {
                     self.position = video.position().as_secs_f64();
                     let duration =
                         Duration::try_from_secs_f64(self.position + secs).unwrap_or_default();
-                    video.seek(duration, true).expect("seek");
+                    if let Err(e) = video.seek(duration, true) {
+                        log::error!("seek failed: {e}");
+                    }
                 }
                 self.update_controls(true);
             }
@@ -375,18 +283,19 @@ impl VideoView {
                 //TODO: cleanest way to close dropdowns
                 self.dropdown_opt = None;
 
-                if let Some(video) = &mut self.video_opt {
+                if let Some(video) = &self.video_opt {
                     self.dragging = false;
                     let duration = Duration::try_from_secs_f64(self.position).unwrap_or_default();
-                    video.seek(duration, true).expect("seek");
-                    video.set_paused(false);
+                    if let Err(e) = video.seek(duration, true) {
+                        log::error!("seek failed: {e}");
+                    }
+                    let _ = video.set_paused(false);
                     self.update_controls(true);
                 }
             }
             Message::EndOfStream => {
                 println!("end of stream");
             }
-            Message::MissingPlugin => {}
             Message::NewFrame => {
                 if let Some(video) = &self.video_opt {
                     if !self.dragging {
@@ -400,5 +309,44 @@ impl VideoView {
             }
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::mpv::{Track, TrackKind};
+
+    fn track(title: Option<&str>, language: Option<&str>) -> Track {
+        Track {
+            id: 1,
+            title: title.map(str::to_string),
+            language: language.map(str::to_string),
+            kind: TrackKind::Audio,
+            selected: true,
+        }
+    }
+
+    #[test]
+    fn display_name_prefers_title_then_language() {
+        assert_eq!(
+            track(Some("Commentary"), Some("eng")).display_name("Audio", 0),
+            "Commentary"
+        );
+        assert_eq!(track(None, Some("deu")).display_name("Audio", 0), "German");
+        assert_eq!(track(None, Some("zz")).display_name("Audio", 2), "zz");
+        assert_eq!(track(None, None).display_name("Subtitle", 1), "Subtitle #1");
+        // Empty title falls through to language.
+        assert_eq!(
+            track(Some(""), Some("fra")).display_name("Audio", 0),
+            "French"
+        );
+    }
+
+    #[test]
+    fn language_name_maps_common_codes() {
+        assert_eq!(crate::mpv::language_name("eng"), Some("English"));
+        assert_eq!(crate::mpv::language_name("DE"), Some("German"));
+        assert_eq!(crate::mpv::language_name("jpn"), Some("Japanese"));
+        assert_eq!(crate::mpv::language_name("xx"), None);
     }
 }

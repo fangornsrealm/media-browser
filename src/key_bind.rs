@@ -5,8 +5,8 @@
 // Copyright 2024 Alexander Schwarzkopf
 
 use cosmic::{
+    iced::core::keyboard::key::Named,
     iced::keyboard::Key,
-    iced_core::keyboard::key::Named,
     widget::menu::key_bind::{KeyBind, Modifier},
 };
 use std::collections::HashMap;
@@ -43,7 +43,7 @@ pub fn key_binds(mode: &tab::Mode) -> HashMap<KeyBind, Action> {
     bind!([], Key::Named(Named::Escape), OpenBrowser);
     bind!([Ctrl, Shift], Key::Character("n".into()), NewFolder);
     bind!([], Key::Named(Named::Enter), Open);
-    bind!([Ctrl], Key::Named(Named::Space), Preview);
+    bind!([Ctrl], Key::Character(" ".into()), Preview);
     bind!([Ctrl], Key::Character("h".into()), ToggleShowHidden);
     bind!([Ctrl], Key::Character("a".into()), SelectAll);
     bind!([Ctrl], Key::Character("=".into()), ZoomIn);
@@ -95,7 +95,7 @@ pub fn key_binds(mode: &tab::Mode) -> HashMap<KeyBind, Action> {
     if matches!(mode, tab::Mode::Video | tab::Mode::Audio) {
         bind!([], Key::Named(Named::ArrowRight), SeekForward);
         bind!([], Key::Named(Named::ArrowLeft), SeekBackward);
-        bind!([], Key::Named(Named::Space), PlayPause);
+        bind!([], Key::Character(" ".into()), PlayPause);
         bind!([], Key::Character("m".into()), AudioMuteToggle);
         //bind!([], Key::Character("s".into()), SubtitleToggle);
         bind!([], Key::Character("f".into()), SeekForward);

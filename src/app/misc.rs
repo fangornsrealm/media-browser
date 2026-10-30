@@ -26,11 +26,11 @@
 //! access it. The zoom handlers dispatch `Message::TabConfig`, which is
 //! handled by the tab module.
 
-use cosmic::app::{message, Task};
+use cosmic::Application;
+use cosmic::app::Task;
 use cosmic::iced::keyboard::{Key, Modifiers};
 use cosmic::iced::window;
 use cosmic::widget::segmented_button::Entity;
-use cosmic::Application;
 use std::{env, num::NonZeroU16, process};
 
 use super::{App, Message, Mode};
@@ -102,7 +102,7 @@ impl App {
         if let Some(window_id) = self.window_id_opt.take() {
             return Task::batch([
                 window::close(window_id),
-                Task::perform(async move { message::app(Message::MaybeExit) }, |x| x),
+                cosmic::task::message(Message::MaybeExit),
             ]);
         }
 
@@ -135,7 +135,7 @@ impl App {
     pub fn key(&mut self, modifiers: Modifiers, key: Key) -> Task<Message> {
         let entity = self.tab_model.active();
         for (key_bind, action) in self.key_binds.iter() {
-            if key_bind.matches(modifiers, &key) {
+            if key_bind.matches(modifiers, &key, None) {
                 return self.update(action.message(Some(entity)));
             }
         }

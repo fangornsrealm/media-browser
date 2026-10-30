@@ -5,8 +5,18 @@
 // Copyright 2024 Alexander Schwarzkopf
 
 use cosmic::{
-    cosmic_theme, font,
+    Element, cosmic_theme, font,
+    iced::core::{mouse::ScrollDelta, widget::tree},
     iced::{
+        Alignment,
+        Border,
+        Color,
+        ContentFit,
+        Length,
+        Point,
+        Rectangle,
+        Size,
+        Subscription,
         advanced::{
             graphics,
             text::{self, Paragraph},
@@ -20,31 +30,19 @@ use cosmic::{
         stream,
         //TODO: export in cosmic::widget
         widget::{
-            horizontal_rule, rule,
+            rule,
             scrollable::{self, AbsoluteOffset, Viewport},
         },
-        Alignment,
-        Border,
-        Color,
-        ContentFit,
-        Length,
-        Point,
-        Rectangle,
-        Size,
-        Subscription,
     },
-    iced_core::{mouse::ScrollDelta, widget::tree},
     theme,
     widget::{
-        self,
+        self, DndDestination, DndSource, Id, Space, Widget,
         menu::{action::MenuAction, key_bind::KeyBind},
-        DndDestination, DndSource, Id, Space, Widget,
     },
-    Element,
 };
 
 use chrono::{DateTime, Utc};
-use mime_guess::{mime, Mime};
+use mime_guess::{Mime, mime};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -57,7 +55,7 @@ use std::{
     ops::ControlFlow,
     os::unix::fs::MetadataExt,
     path::{Path, PathBuf},
-    sync::{atomic, Arc, Mutex, RwLock},
+    sync::{Arc, Mutex, RwLock, atomic},
     time::{Duration, Instant, SystemTime},
 };
 use tokio::sync::mpsc;
@@ -422,7 +420,10 @@ pub fn scan_path_recursive(
     tab_path: PathBuf,
 ) {
     let mut data = crate::scanmetadata::ScanMetaData::new();
-    log::warn!("Scanning path {} recursively. This can take a long time. Only read operations should be done while this job is still running!", tab_path.display());
+    log::warn!(
+        "Scanning path {} recursively. This can take a long time. Only read operations should be done while this job is still running!",
+        tab_path.display()
+    );
     let files = crate::sql::files(sql_connection.clone());
     for (k, v) in files.iter() {
         data.known_files_insert(k.to_path_buf(), v.to_owned());
@@ -651,11 +652,7 @@ pub fn scan_path_runner(
 
 fn sort_items_media_browser(items: Vec<Item>) -> Vec<Item> {
     let check_reverse = |ord: Ordering, sort: bool| {
-        if sort {
-            ord
-        } else {
-            ord.reverse()
-        }
+        if sort { ord } else { ord.reverse() }
     };
     let mut items2 = items;
     items2.sort_by(|a, b| match (a.metadata.is_dir(), b.metadata.is_dir()) {
@@ -1429,7 +1426,7 @@ impl Item {
     ) {
         let cosmic_theme::Spacing { space_xxxs, .. } = theme::active().cosmic().spacing;
 
-        let mut details = widget::column().spacing(space_xxxs);
+        let mut details = widget::column::with_capacity(0).spacing(space_xxxs);
         let mut settings = Vec::new();
         let metadata = match std::fs::metadata(&path) {
             Ok(ok) => ok,
@@ -1511,7 +1508,7 @@ impl Item {
         } = theme::active().cosmic().spacing;
 
         let mut column: cosmic::iced::widget::Column<'_, app::Message, theme::Theme> =
-            widget::column().spacing(space_m);
+            widget::column::with_capacity(0).spacing(space_m);
 
         column = column.push(widget::row::with_children(vec![
             widget::space::horizontal().into(),
@@ -1555,7 +1552,7 @@ impl Item {
                         };
                         details = details.push(widget::text::body(fl!("item-size", size = size)));
                     } else {
-                        details = widget::column().spacing(space_xxxs);
+                        details = widget::column::with_capacity(0).spacing(space_xxxs);
                         settings = Vec::new();
                     }
                 } else {
@@ -1809,13 +1806,13 @@ impl Item {
                             )));
                         }
                     } else {
-                        details = widget::column().spacing(space_xxxs);
+                        details = widget::column::with_capacity(0).spacing(space_xxxs);
                         settings = Vec::new();
                     }
                 }
             }
             _ => {
-                details = widget::column().spacing(space_xxxs);
+                details = widget::column::with_capacity(0).spacing(space_xxxs);
                 settings = Vec::new();
             }
         }
@@ -1845,10 +1842,10 @@ impl Item {
     ) -> Element<'a, app::Message> {
         let cosmic_theme::Spacing { space_xxxs, .. } = theme::active().cosmic().spacing;
 
-        let mut row = widget::row().spacing(space_xxxs);
+        let mut row = widget::row::Row::new().spacing(space_xxxs);
         row = row.push(self.preview(sizes));
 
-        let mut column = widget::column().spacing(space_xxxs);
+        let mut column = widget::column::with_capacity(0).spacing(space_xxxs);
         column = column.push(widget::text::heading(heading));
 
         //TODO: translate!
@@ -2771,7 +2768,7 @@ impl Tab {
                 }
                 if let Some(offset) = self.select_focus_scroll() {
                     commands.push(Command::Iced(
-                        scrollable::scroll_to(self.scrollable_id.clone(), offset).into(),
+                        scrollable::scroll_to(self.scrollable_id.clone(), offset.into()).into(),
                     ));
                 }
                 if let Some(id) = self.select_focus_id() {
@@ -2821,7 +2818,7 @@ impl Tab {
                     }
                     if let Some(offset) = self.select_focus_scroll() {
                         commands.push(Command::Iced(
-                            scrollable::scroll_to(self.scrollable_id.clone(), offset).into(),
+                            scrollable::scroll_to(self.scrollable_id.clone(), offset.into()).into(),
                         ));
                     }
                     if let Some(id) = self.select_focus_id() {
@@ -2874,7 +2871,7 @@ impl Tab {
                     }
                     if let Some(offset) = self.select_focus_scroll() {
                         commands.push(Command::Iced(
-                            scrollable::scroll_to(self.scrollable_id.clone(), offset).into(),
+                            scrollable::scroll_to(self.scrollable_id.clone(), offset.into()).into(),
                         ));
                     }
                     if let Some(id) = self.select_focus_id() {
@@ -2910,7 +2907,7 @@ impl Tab {
                     }
                     if let Some(offset) = self.select_focus_scroll() {
                         commands.push(Command::Iced(
-                            scrollable::scroll_to(self.scrollable_id.clone(), offset).into(),
+                            scrollable::scroll_to(self.scrollable_id.clone(), offset.into()).into(),
                         ));
                     }
                     if let Some(id) = self.select_focus_id() {
@@ -2948,7 +2945,7 @@ impl Tab {
                     }
                     if let Some(offset) = self.select_focus_scroll() {
                         commands.push(Command::Iced(
-                            scrollable::scroll_to(self.scrollable_id.clone(), offset).into(),
+                            scrollable::scroll_to(self.scrollable_id.clone(), offset.into()).into(),
                         ));
                     }
                     if let Some(id) = self.select_focus_id() {
@@ -3118,7 +3115,7 @@ impl Tab {
             Message::ScrollToFocus => {
                 if let Some(offset) = self.select_focus_scroll() {
                     commands.push(Command::Iced(
-                        scrollable::scroll_to(self.scrollable_id.clone(), offset).into(),
+                        scrollable::scroll_to(self.scrollable_id.clone(), offset.into()).into(),
                     ));
                 }
             }
@@ -3342,7 +3339,7 @@ impl Tab {
             let offset = AbsoluteOffset { x: 0.0, y: 0.0 };
             self.scroll_opt = Some(offset);
             commands.push(Command::Iced(
-                scrollable::scroll_to(self.scrollable_id.clone(), offset).into(),
+                scrollable::scroll_to(self.scrollable_id.clone(), offset.into()).into(),
             ));
         }
 
@@ -3389,11 +3386,7 @@ impl Tab {
 
     fn column_sort(&self) -> Option<Vec<(usize, &Item)>> {
         let check_reverse = |ord: Ordering, sort: bool| {
-            if sort {
-                ord
-            } else {
-                ord.reverse()
-            }
+            if sort { ord } else { ord.reverse() }
         };
         let mut items: Vec<_> = self.items_opt.as_ref()?.iter().enumerate().collect();
         let (sort_name, sort_direction, folders_first) = self.sort_options();
@@ -3596,14 +3589,15 @@ impl Tab {
         ) -> f32 {
             let text: text::Text<&'a str, font::Font> = text::Text {
                 content,
-                bounds: Size::INFINITY,
+                bounds: Size::INFINITE,
                 size: font_size.into(),
                 line_height: text::LineHeight::Absolute(line_height.into()),
                 font,
-                horizontal_alignment: Horizontal::Left,
-                vertical_alignment: Vertical::Top,
+                align_x: text::Alignment::Left,
+                align_y: Vertical::Top,
                 shaping: text::Shaping::default(),
                 wrapping: text::Wrapping::None,
+                ellipsize: text::Ellipsize::default(),
             };
             graphics::text::Paragraph::with_text(text)
                 .min_bounds()
@@ -3652,7 +3646,7 @@ impl Tab {
         row = row.push(next_button);
         w += 16.0 + 2.0 * space_xxs as f32;
 
-        row = row.push(widget::Space::with_width(Length::Fixed(space_s.into())));
+        row = row.push(widget::Space::new().width(Length::Fixed(space_s.into())));
         w += space_s as f32;
 
         //TODO: allow resizing?
@@ -3705,13 +3699,13 @@ impl Tab {
         .padding([0, space_xxs]);
 
         let accent_rule =
-            horizontal_rule(1).class(theme::Rule::Custom(Box::new(|theme| rule::Style {
+            rule::horizontal(1).class(theme::Rule::Custom(Box::new(|theme| rule::Style {
                 color: theme.cosmic().accent_color().into(),
-                width: 1,
                 radius: 0.0.into(),
                 fill_mode: rule::FillMode::Full,
+                snap: true,
             })));
-        let heading_rule = widget::container(horizontal_rule(1))
+        let heading_rule = widget::container(rule::horizontal(1))
             .padding([0, theme::active().cosmic().corner_radii.radius_xs[0] as u16]);
 
         match &self.edit_location {
@@ -3737,7 +3731,7 @@ impl Tab {
                                         location.with_path(PathBuf::from(input)),
                                     ))
                                 })
-                                .on_submit(Message::Location(location.clone()))
+                                .on_submit(|_| Message::Location(location.clone()))
                                 .line_height(1.0),
                         );
                         let mut column3 = widget::column::with_capacity(4).padding([0, space_s]);
@@ -3769,7 +3763,7 @@ impl Tab {
                                         location.with_path(PathBuf::from(input)),
                                     ))
                                 })
-                                .on_submit(Message::Location(location.clone()))
+                                .on_submit(|_| Message::Location(location.clone()))
                                 .line_height(1.0),
                         );
                         let mut column3 = widget::column::with_capacity(4).padding([0, space_s]);
@@ -4094,33 +4088,35 @@ impl Tab {
         let cosmic_theme::Spacing { space_xxs, .. } = theme::active().cosmic().spacing;
 
         //TODO: left clicking on an empty folder does not clear context menu
-        widget::column::with_children(vec![widget::container(
-            widget::column::with_children(match self.mode {
-                Mode::App | Mode::Dialog(_) => vec![
-                    widget::icon::from_name("folder-symbolic")
-                        .size(64)
-                        .icon()
+        widget::column::with_children(vec![
+            widget::container(
+                widget::column::with_children(match self.mode {
+                    Mode::App | Mode::Dialog(_) => vec![
+                        widget::icon::from_name("folder-symbolic")
+                            .size(64)
+                            .icon()
+                            .into(),
+                        widget::text::body(if has_hidden {
+                            fl!("empty-folder-hidden")
+                        } else if matches!(self.location, Location::Search(..)) {
+                            fl!("no-results")
+                        } else {
+                            fl!("empty-folder")
+                        })
                         .into(),
-                    widget::text::body(if has_hidden {
-                        fl!("empty-folder-hidden")
-                    } else if matches!(self.location, Location::Search(..)) {
-                        fl!("no-results")
-                    } else {
-                        fl!("empty-folder")
-                    })
-                    .into(),
-                ],
-                Mode::Desktop => Vec::new(),
-                Mode::Browser => Vec::new(),
-                Mode::Audio => Vec::new(),
-                Mode::Image => Vec::new(),
-                Mode::Video => Vec::new(),
-            })
-            .align_x(Alignment::Center)
-            .spacing(space_xxs),
-        )
-        .center(Length::Fill)
-        .into()])
+                    ],
+                    Mode::Desktop => Vec::new(),
+                    Mode::Browser => Vec::new(),
+                    Mode::Audio => Vec::new(),
+                    Mode::Image => Vec::new(),
+                    Mode::Video => Vec::new(),
+                })
+                .align_x(Alignment::Center)
+                .spacing(space_xxs),
+            )
+            .center(Length::Fill)
+            .into(),
+        ])
         .into()
     }
 
@@ -4347,7 +4343,7 @@ impl Tab {
                 let spacer_height = height.checked_sub(max_bottom + top_deduct).unwrap_or(0);
                 if spacer_height > 0 {
                     children.push(
-                        widget::container(Space::with_height(Length::Fixed(spacer_height as f32)))
+                        widget::container(Space::new().height(Length::Fixed(spacer_height as f32)))
                             .into(),
                     )
                 }
@@ -4411,7 +4407,7 @@ impl Tab {
                             dnd_item_i += 1;
                         } else {
                             dnd_grid = dnd_grid.push(
-                                widget::container(Space::with_height(item_width as f32))
+                                widget::container(Space::new().height(item_width as f32))
                                     .height(Length::Fixed(item_height as f32)),
                             );
                         }
@@ -4494,7 +4490,7 @@ impl Tab {
 
                 if count > 0 {
                     children.push(
-                        widget::container(horizontal_rule(1))
+                        widget::container(rule::horizontal(1))
                             .padding([0, rule_padding])
                             .into(),
                     );
@@ -4651,7 +4647,7 @@ impl Tab {
 
                 if item.selected || !drag_items.is_empty() {
                     let dnd_row = if !item.selected {
-                        Element::from(Space::with_height(Length::Fixed(row_height as f32)))
+                        Element::from(Space::new().height(Length::Fixed(row_height as f32)))
                     } else if condensed {
                         widget::row::with_children(vec![
                             widget::icon::icon(item.icon_handle_list_condensed.clone())
@@ -4748,7 +4744,7 @@ impl Tab {
             let spacer_height = size.height - y as f32 - top_deduct as f32;
             if spacer_height > 0. {
                 children.push(
-                    widget::container(Space::with_height(Length::Fixed(spacer_height))).into(),
+                    widget::container(Space::new().height(Length::Fixed(spacer_height))).into(),
                 );
             }
         }
@@ -4760,7 +4756,7 @@ impl Tab {
             mouse_area::MouseArea::new(
                 widget::column::with_children(children).padding([0, space_s]),
             )
-            .with_id(Id::new("list-view"))
+            .with_id(Id::unique())
             .on_press(|_| Message::Click(None))
             .on_drag(Message::Drag)
             .on_drag_end(|_| Message::DragEnd(None))
@@ -4807,7 +4803,7 @@ impl Tab {
             })
             .unwrap_or_default();
         let item_view =
-            DndSource::<Message, ClipboardCopy>::with_id(item_view, Id::new("tab-view"));
+            DndSource::<Message, ClipboardCopy>::with_id(item_view, Id::unique());
 
         let item_view = match drag_list {
             Some(drag_list) if self.selected_clicked => {
@@ -4816,9 +4812,13 @@ impl Tab {
                     .drag_content(move || {
                         ClipboardCopy::new(crate::clipboard::ClipboardKind::Copy, &files)
                     })
-                    .drag_icon(move || {
+                    .drag_icon(move |offset| {
                         let state: tree::State = Widget::<Message, _, _>::state(&drag_list);
-                        (Element::from(drag_list.clone()).map(|_m| ()), state)
+                        (
+                            Element::from(drag_list.clone()).map(|_m| ()),
+                            state,
+                            offset,
+                        )
                     })
             }
             _ => item_view,
@@ -4975,9 +4975,13 @@ impl Tab {
                     // Item must be calculating directory size
                     if let DirSize::Calculating(controller) = &item.dir_size {
                         let controller = controller.clone();
-                        subscriptions.push(Subscription::run_with_id(
-                            ("dir_size", path.clone()),
-                            stream::channel(1, |mut output| async move {
+                        subscriptions.push(Subscription::run_with(
+                            ("dir_size", path.clone(), controller.clone()),
+                            |data: &(&str, PathBuf, Controller)| {
+                                let (_tag, path, controller) = data.clone();
+                                stream::channel::<Message>(
+                                    1,
+                                    move |mut output: futures::channel::mpsc::Sender<Message>| async move {
                                 let message = {
                                     let path = path.clone();
                                     tokio::task::spawn_blocking(move || {
@@ -5023,7 +5027,8 @@ impl Tab {
                                 }
 
                                 std::future::pending().await
-                            }),
+                                })
+                            },
                         ));
                     }
                 }
@@ -5037,9 +5042,20 @@ impl Tab {
             let term = term.clone();
             let show_hidden = *show_hidden;
             let start = start.clone();
-            subscriptions.push(Subscription::run_with_id(
-                location.clone(),
-                stream::channel(2, move |mut output| async move {
+            let data = (location.clone(), path, term, show_hidden, start);
+            subscriptions.push(Subscription::run_with(
+                data,
+                |data: &(Location, PathBuf, String, bool, Instant)| {
+                    let (location, path, term, show_hidden, start) = (
+                        data.0.clone(),
+                        data.1.clone(),
+                        data.2.clone(),
+                        data.3,
+                        data.4.clone(),
+                    );
+                    stream::channel(
+                        2,
+                        move |mut output: futures::channel::mpsc::Sender<Message>| async move {
                     //TODO: optimal size?
                     let (results_tx, results_rx) = mpsc::channel(65536);
 
@@ -5117,8 +5133,9 @@ impl Tab {
                     let _ = output.lock().await.send(Message::SearchReady(true)).await;
 
                     std::future::pending().await
-                }),
-            ));
+                })
+            },
+        ));
         }
 
         Subscription::batch(subscriptions)
@@ -5150,16 +5167,16 @@ pub fn respond_to_scroll_direction(delta: ScrollDelta, modifiers: Modifiers) -> 
 mod tests {
     use std::{fs, io, path::PathBuf};
 
-    use cosmic::{iced::mouse::ScrollDelta, iced_runtime::keyboard::Modifiers};
+    use cosmic::{iced::keyboard::Modifiers, iced::mouse::ScrollDelta};
     use log::{debug, trace};
     use tempfile::TempDir;
     use test_log::test;
 
-    use super::{respond_to_scroll_direction, scan_path, Location, Message, Tab};
+    use super::{Location, Message, Tab, respond_to_scroll_direction, scan_path};
     use crate::{
         app::test_utils::{
-            assert_eq_tab_path, empty_fs, eq_path_item, filter_dirs, read_dir_sorted, simple_fs,
-            tab_click_new, NAME_LEN, NUM_DIRS, NUM_FILES, NUM_HIDDEN, NUM_NESTED,
+            NAME_LEN, NUM_DIRS, NUM_FILES, NUM_HIDDEN, NUM_NESTED, assert_eq_tab_path, empty_fs,
+            eq_path_item, filter_dirs, read_dir_sorted, simple_fs, tab_click_new,
         },
         config::{IconSizes, MediaTabConfig as TabConfig},
     };
@@ -5222,9 +5239,13 @@ mod tests {
         // All directories (simple_fs only produces one nested layer)
         let dirs: Vec<PathBuf> = filter_dirs(path)?
             .flat_map(|dir| {
-                filter_dirs(&dir).map(|nested_dirs| std::iter::once(dir).chain(nested_dirs))
+                let nested: Vec<PathBuf> = filter_dirs(&dir)
+                    .map(|it| it.collect())
+                    .unwrap_or_default();
+                let mut all = vec![dir];
+                all.extend(nested);
+                all
             })
-            .flatten()
             .collect();
         assert!(
             dirs.len() == NUM_DIRS + NUM_DIRS * NUM_NESTED,
@@ -5277,10 +5298,12 @@ mod tests {
         assert_eq!(entries.len(), actual.len());
 
         // Correct files should be scanned
-        assert!(entries
-            .into_iter()
-            .zip(actual.into_iter())
-            .all(|(path, item)| eq_path_item(&path, &item)));
+        assert!(
+            entries
+                .into_iter()
+                .zip(actual.into_iter())
+                .all(|(path, item)| eq_path_item(&path, &item))
+        );
 
         Ok(())
     }
@@ -5569,7 +5592,7 @@ impl<M> Widget<M, cosmic::Theme, cosmic::Renderer> for ArcElementWrapper<M> {
     }
 
     fn layout(
-        &self,
+        &mut self,
         tree: &mut tree::Tree,
         renderer: &cosmic::Renderer,
         limits: &cosmic::iced::core::layout::Limits,
@@ -5615,7 +5638,7 @@ impl<M> Widget<M, cosmic::Theme, cosmic::Renderer> for ArcElementWrapper<M> {
     }
 
     fn operate(
-        &self,
+        &mut self,
         state: &mut tree::Tree,
         layout: cosmic::iced::core::Layout<'_>,
         renderer: &cosmic::Renderer,
@@ -5624,24 +5647,24 @@ impl<M> Widget<M, cosmic::Theme, cosmic::Renderer> for ArcElementWrapper<M> {
         self.0
             .lock()
             .unwrap()
-            .as_widget()
+            .as_widget_mut()
             .operate(state, layout, renderer, operation)
     }
 
-    fn on_event(
+    fn update(
         &mut self,
         _state: &mut tree::Tree,
-        _event: cosmic::iced::Event,
+        _event: &cosmic::iced::Event,
         _layout: cosmic::iced::core::Layout<'_>,
         _cursor: cosmic::iced::core::mouse::Cursor,
         _renderer: &cosmic::Renderer,
         _clipboard: &mut dyn cosmic::iced::core::Clipboard,
         _shell: &mut cosmic::iced::core::Shell<'_, M>,
         _viewport: &Rectangle,
-    ) -> event::Status {
-        self.0.lock().unwrap().as_widget_mut().on_event(
+    ) {
+        self.0.lock().unwrap().as_widget_mut().update(
             _state, _event, _layout, _cursor, _renderer, _clipboard, _shell, _viewport,
-        )
+        );
     }
 
     fn mouse_interaction(
@@ -5664,6 +5687,7 @@ impl<M> Widget<M, cosmic::Theme, cosmic::Renderer> for ArcElementWrapper<M> {
         _state: &'a mut tree::Tree,
         _layout: cosmic::iced::core::Layout<'_>,
         _renderer: &cosmic::Renderer,
+        _viewport: &Rectangle,
         _translation: cosmic::iced::core::Vector,
     ) -> Option<cosmic::iced::core::overlay::Element<'a, M, cosmic::Theme, cosmic::Renderer>> {
         // TODO
@@ -5714,8 +5738,6 @@ fn _text_editor_class(
     let mut placeholder = cosmic.palette.neutral_9;
     placeholder.alpha = 0.7;
     let placeholder = placeholder.into();
-    let icon = cosmic.background.on.into();
-
     match status {
         cosmic::iced::widget::text_editor::Status::Active
         | cosmic::iced::widget::text_editor::Status::Disabled => {
@@ -5726,14 +5748,13 @@ fn _text_editor_class(
                     width: 2.0,
                     color: container.component.divider.into(),
                 },
-                icon,
                 placeholder,
                 value,
                 selection,
             }
         }
         cosmic::iced::widget::text_editor::Status::Hovered
-        | cosmic::iced::widget::text_editor::Status::Focused => {
+        | cosmic::iced::widget::text_editor::Status::Focused { .. } => {
             cosmic::iced::widget::text_editor::Style {
                 background: background.into(),
                 border: cosmic::iced::Border {
@@ -5741,7 +5762,6 @@ fn _text_editor_class(
                     width: 2.0,
                     color: cosmic::iced::Color::from(cosmic.accent.base),
                 },
-                icon,
                 placeholder,
                 value,
                 selection,

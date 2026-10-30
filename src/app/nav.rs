@@ -29,7 +29,8 @@
 //! defined at the top level of `app/mod.rs` (moved out of the former inline
 //! definition inside `App::update`) so this sibling module can access it.
 
-use cosmic::app::{message, Task};
+use cosmic::action as message;
+use cosmic::app::Task;
 use cosmic::iced::clipboard::dnd::DndAction;
 use cosmic::widget::segmented_button::Entity;
 use cosmic::{Application, ApplicationExt};
@@ -43,9 +44,9 @@ use super::{
 use crate::clipboard::{ClipboardKind, ClipboardPaste};
 use crate::config::IconSizes;
 use crate::home_dir;
-use crate::mounter::{MounterAuth, MounterItem, MounterItems, MounterKey, MOUNTERS};
+use crate::mounter::{MOUNTERS, MounterAuth, MounterItem, MounterItems, MounterKey};
 use crate::operation::Operation;
-use crate::tab::{Location, Tab, HOVER_DURATION};
+use crate::tab::{HOVER_DURATION, Location, Tab};
 
 impl App {
     /// Handle `Message::MounterItems`.
@@ -238,7 +239,7 @@ impl App {
             self.nav_dnd_hover = Some((location.clone(), Instant::now()));
             let location = location.clone();
             return Task::perform(tokio::time::sleep(HOVER_DURATION), move |_| {
-                cosmic::app::Message::App(Message::DndHoverLocTimeout(location.clone()))
+                cosmic::action::app(Message::DndHoverLocTimeout(location.clone()))
             });
         }
         Task::none()
@@ -336,7 +337,7 @@ impl App {
     pub fn dnd_enter_tab(&mut self, entity: Entity) -> Task<Message> {
         self.tab_dnd_hover = Some((entity, Instant::now()));
         Task::perform(tokio::time::sleep(HOVER_DURATION), move |_| {
-            cosmic::app::Message::App(Message::DndHoverTabTimeout(entity))
+            cosmic::action::app(Message::DndHoverTabTimeout(entity))
         })
     }
 

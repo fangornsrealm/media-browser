@@ -19,14 +19,13 @@
 //! this module imports that trait to call them. `App`'s private fields are
 //! reachable here because this module is a child of `app`.
 
+use cosmic::Application;
 use cosmic::app::Task;
 use cosmic::iced::window;
 use cosmic::widget::segmented_button::Entity;
-use cosmic::Application;
 
 use super::{App, Message, Mode};
 use crate::tab::{self, Tab};
-use gstreamer::prelude::*;
 
 impl App {
     /// Handle `Message::Browser`.
@@ -37,14 +36,14 @@ impl App {
         if self.active_view == Mode::Audio {
             if let Some(audio) = self.audio_view.audio_opt.as_mut() {
                 if !audio.paused() {
-                    audio.set_paused(true);
+                    let _ = audio.set_paused(true);
                 }
             }
         }
         if self.active_view == Mode::Video {
             if let Some(video) = self.video_view.video_opt.as_mut() {
                 if !video.paused() {
-                    video.set_paused(true);
+                    let _ = video.set_paused(true);
                 }
             }
         }
@@ -226,7 +225,7 @@ impl App {
             self.video_view.dropdown_opt = None;
             self.video_view.fullscreen = !self.video_view.fullscreen;
             self.core.window.show_headerbar = !self.video_view.fullscreen;
-            return window::change_mode(
+            return window::set_mode(
                 window::Id::RESERVED,
                 if self.video_view.fullscreen {
                     window::Mode::Fullscreen
@@ -239,7 +238,7 @@ impl App {
 
             self.audio_view.fullscreen = !self.audio_view.fullscreen;
             self.core.window.show_headerbar = !self.audio_view.fullscreen;
-            return window::change_mode(
+            return window::set_mode(
                 window::Id::RESERVED,
                 if self.audio_view.fullscreen {
                     window::Mode::Fullscreen
@@ -267,7 +266,7 @@ impl App {
             ));
             if let Some(video) = self.video_view.video_opt.as_mut() {
                 if video.paused() {
-                    video.set_paused(false);
+                    let _ = video.set_paused(false);
                 }
             }
         } else if self.active_view == Mode::Audio {
@@ -278,7 +277,7 @@ impl App {
             ));
             if let Some(audio) = self.audio_view.audio_opt.as_mut() {
                 if audio.paused() {
-                    audio.set_paused(false);
+                    let _ = audio.set_paused(false);
                 }
             }
         } else {
@@ -299,7 +298,7 @@ impl App {
             ));
             if let Some(video) = self.video_view.video_opt.as_mut() {
                 if video.paused() {
-                    video.set_paused(false);
+                    let _ = video.set_paused(false);
                 }
             }
         } else if self.active_view == Mode::Audio {
@@ -308,7 +307,7 @@ impl App {
             ));
             if let Some(audio) = self.audio_view.audio_opt.as_mut() {
                 if audio.paused() {
-                    audio.set_paused(false);
+                    let _ = audio.set_paused(false);
                 }
             }
         } else {
@@ -329,7 +328,7 @@ impl App {
             ));
             if let Some(video) = self.video_view.video_opt.as_mut() {
                 if video.paused() {
-                    video.set_paused(false);
+                    let _ = video.set_paused(false);
                 }
             }
         } else if self.active_view == Mode::Audio {
@@ -338,7 +337,7 @@ impl App {
             ));
             if let Some(audio) = self.audio_view.audio_opt.as_mut() {
                 if audio.paused() {
-                    audio.set_paused(false);
+                    let _ = audio.set_paused(false);
                 }
             }
         } else {
@@ -459,93 +458,6 @@ impl App {
         Task::none()
     }
 
-    /// Handle `Message::MissingPlugin`.
-    ///
-    /// Pauses the active video/audio player and, on a background task,
-    /// installs the missing GStreamer plugin described by the element,
-    /// then reloads the audio pipeline.
-    pub fn missing_plugin(&mut self, element: gstreamer::Message) -> Task<Message> {
-        if self.active_view == Mode::Video {
-            if let Some(video) = &mut self.video_view.video_opt {
-                video.set_paused(true);
-            }
-            return Task::perform(
-                async move {
-                    tokio::task::spawn_blocking(move || {
-                        match gstreamer_pbutils::MissingPluginMessage::parse(&element) {
-                            Ok(missing_plugin) => {
-                                let mut install_ctx =
-                                    gstreamer_pbutils::InstallPluginsContext::new();
-                                install_ctx.set_desktop_id(&format!("{}.desktop", Self::APP_ID));
-                                let install_detail = missing_plugin.installer_detail();
-                                println!("installing plugins: {}", install_detail);
-                                let status =
-                                    gstreamer_pbutils::missing_plugins::install_plugins_sync(
-                                        &[&install_detail],
-                                        Some(&install_ctx),
-                                    );
-                                log::info!("plugin install status: {}", status);
-                                log::info!(
-                                    "gstreamer registry update: {:?}",
-                                    gstreamer::Registry::update()
-                                );
-                            }
-                            Err(err) => {
-                                log::warn!("failed to parse missing plugin message: {err}");
-                            }
-                        }
-                        cosmic::app::message::app(Message::AudioMessage(
-                            crate::audio::audio_view::Message::Reload,
-                        ))
-                    })
-                    .await
-                    .unwrap()
-                },
-                |x| x,
-            );
-        } else if self.active_view == Mode::Audio {
-            if let Some(video) = &mut self.audio_view.audio_opt {
-                video.set_paused(true);
-            }
-            return Task::perform(
-                async move {
-                    tokio::task::spawn_blocking(move || {
-                        match gstreamer_pbutils::MissingPluginMessage::parse(&element) {
-                            Ok(missing_plugin) => {
-                                let mut install_ctx =
-                                    gstreamer_pbutils::InstallPluginsContext::new();
-                                install_ctx.set_desktop_id(&format!("{}.desktop", Self::APP_ID));
-                                let install_detail = missing_plugin.installer_detail();
-                                println!("installing plugins: {}", install_detail);
-                                let status =
-                                    gstreamer_pbutils::missing_plugins::install_plugins_sync(
-                                        &[&install_detail],
-                                        Some(&install_ctx),
-                                    );
-                                log::info!("plugin install status: {}", status);
-                                log::info!(
-                                    "gstreamer registry update: {:?}",
-                                    gstreamer::Registry::update()
-                                );
-                            }
-                            Err(err) => {
-                                log::warn!("failed to parse missing plugin message: {err}");
-                            }
-                        }
-                        cosmic::app::message::app(Message::AudioMessage(
-                            crate::audio::audio_view::Message::Reload,
-                        ))
-                    })
-                    .await
-                    .unwrap()
-                },
-                |x| x,
-            );
-        }
-
-        Task::none()
-    }
-
     /// Handle `Message::MouseScroll`.
     ///
     /// Converts a mouse wheel delta into a ~10s seek relative to the current
@@ -562,7 +474,7 @@ impl App {
             ));
             if let Some(video) = self.video_view.video_opt.as_mut() {
                 if video.paused() {
-                    video.set_paused(false);
+                    let _ = video.set_paused(false);
                 }
             }
         } else if self.active_view == Mode::Audio {
@@ -572,7 +484,7 @@ impl App {
             ));
             if let Some(audio) = self.audio_view.audio_opt.as_mut() {
                 if audio.paused() {
-                    audio.set_paused(false);
+                    let _ = audio.set_paused(false);
                 }
             }
         }
@@ -765,7 +677,7 @@ impl App {
 
                 self.audio_view.fullscreen = !self.audio_view.fullscreen;
                 self.core.window.show_headerbar = !self.audio_view.fullscreen;
-                return window::change_mode(
+                return window::set_mode(
                     window::Id::RESERVED,
                     if self.audio_view.fullscreen {
                         window::Mode::Fullscreen
@@ -775,34 +687,31 @@ impl App {
                 );
             }
             crate::audio::audio_view::Message::AudioCode(code) => {
-                if let Ok(code) = i32::try_from(code) {
-                    if let Some(audio) = &self.audio_view.audio_opt {
-                        let pipeline = audio.pipeline();
-                        pipeline.set_property("current-audio", code);
-                        self.audio_view.current_audio = pipeline.property("current-audio");
+                if let Some(audio) = &self.audio_view.audio_opt {
+                    let idx = code as usize;
+                    if let Err(e) = audio.select_audio(idx) {
+                        log::error!("failed to select audio track {idx}: {e}");
+                    } else {
+                        self.audio_view.current_audio = code as i32;
+                        self.audio_view.dropdown_opt = None;
                     }
                 }
             }
             crate::audio::audio_view::Message::AudioToggle => {
                 if let Some(audio) = &mut self.audio_view.audio_opt {
-                    audio.set_muted(!audio.muted());
+                    let _ = audio.set_muted(!audio.muted());
                     self.audio_view.update_controls(true);
                 }
             }
             crate::audio::audio_view::Message::AudioVolume(volume) => {
                 if let Some(audio) = &mut self.audio_view.audio_opt {
-                    audio.set_volume(volume);
+                    let _ = audio.set_volume(volume);
                     self.audio_view.update_controls(true);
                 }
             }
-            crate::audio::audio_view::Message::TextCode(code) => {
-                if let Ok(code) = i32::try_from(code) {
-                    if let Some(audio) = &self.audio_view.audio_opt {
-                        let pipeline = audio.pipeline();
-                        pipeline.set_property("current-text", code);
-                        self.audio_view.current_text = pipeline.property("current-text");
-                    }
-                }
+            crate::audio::audio_view::Message::TextCode(_code) => {
+                // Audio files in practice never expose subtitle tracks;
+                // the model has no subtitle selection.
             }
             crate::audio::audio_view::Message::ShowControls => {
                 self.audio_view.update_controls(true);
@@ -958,7 +867,7 @@ impl App {
 
                 self.video_view.fullscreen = !self.video_view.fullscreen;
                 self.core.window.show_headerbar = !self.video_view.fullscreen;
-                return window::change_mode(
+                return window::set_mode(
                     window::Id::RESERVED,
                     if self.video_view.fullscreen {
                         window::Mode::Fullscreen
@@ -968,32 +877,36 @@ impl App {
                 );
             }
             crate::video::video_view::Message::AudioCode(code) => {
-                if let Ok(code) = i32::try_from(code) {
-                    if let Some(video) = &self.video_view.video_opt {
-                        let pipeline = video.pipeline();
-                        pipeline.set_property("current-audio", code);
-                        self.video_view.current_audio = pipeline.property("current-audio");
+                if let Some(video) = &self.video_view.video_opt {
+                    let idx = code as usize;
+                    if let Err(e) = video.select_audio(idx) {
+                        log::error!("failed to select audio track {idx}: {e}");
+                    } else {
+                        self.video_view.current_audio = code as i32;
+                        self.video_view.dropdown_opt = None;
                     }
                 }
             }
             crate::video::video_view::Message::AudioToggle => {
                 if let Some(video) = &mut self.video_view.video_opt {
-                    video.set_muted(!video.muted());
+                    let _ = video.set_muted(!video.muted());
                     self.video_view.update_controls(true);
                 }
             }
             crate::video::video_view::Message::AudioVolume(volume) => {
                 if let Some(video) = &mut self.video_view.video_opt {
-                    video.set_volume(volume);
+                    let _ = video.set_volume(volume);
                     self.video_view.update_controls(true);
                 }
             }
             crate::video::video_view::Message::TextCode(code) => {
-                if let Ok(code) = i32::try_from(code) {
-                    if let Some(video) = &self.video_view.video_opt {
-                        let pipeline = video.pipeline();
-                        pipeline.set_property("current-text", code);
-                        self.video_view.current_text = pipeline.property("current-text");
+                if let Some(video) = &self.video_view.video_opt {
+                    let idx = code as usize;
+                    if let Err(e) = video.select_subtitle(idx) {
+                        log::error!("failed to select subtitle track {idx}: {e}");
+                    } else {
+                        self.video_view.current_text = code as i32;
+                        self.video_view.dropdown_opt = None;
                     }
                 }
             }

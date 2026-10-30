@@ -4,6 +4,7 @@
 // Modifications:
 // Copyright 2024 Alexander Schwarzkopf
 
+use cosmic::action as message;
 #[cfg(feature = "wayland")]
 use cosmic::iced::{
     Limits,
@@ -19,7 +20,7 @@ use cosmic::iced::{
 use cosmic::iced_winit::commands::overlap_notify::overlap_notify;
 use cosmic::{
     Application, ApplicationExt, Element,
-    app::{self, Core, Task, context_drawer, message},
+    app::{self, Core, Task, context_drawer},
     cosmic_config, cosmic_theme, executor, font,
     iced::{
         Alignment, Event, Length, Rectangle, Size, Subscription, event,
@@ -61,9 +62,6 @@ pub use crate::audio::audio::Audio;
 pub use crate::audio::audio_player::AudioPlayer;
 pub use crate::video::video::Video;
 pub use crate::video::video_player::VideoPlayer;
-pub use gstreamer as gst;
-pub use gstreamer_app as gst_app;
-pub use gstreamer_pbutils as gst_pbutils;
 
 #[cfg(feature = "wayland")]
 use wayland_client::{Proxy, protocol::wl_output::WlOutput};
@@ -389,7 +387,7 @@ impl App {
         // Tabs are collected first to placate the borrowck
         let tabs: Vec<_> = self.tab_model.iter().collect();
         // Update main conf and each tab with the new config
-        let commands: Vec<_> = std::iter::once(cosmic::app::command::set_theme(
+        let commands: Vec<_> = std::iter::once(cosmic::command::set_theme(
             self.config.app_theme.theme(),
         ))
         .chain(tabs.into_iter().map(|entity| {
@@ -710,8 +708,8 @@ impl App {
                 let progress = controller.progress();
                 section = section.add(widget::column::with_children(vec![
                     widget::row::with_children(vec![
-                        widget::progress_bar(0.0..=1.0, progress)
-                            .height(progress_bar_height)
+                        widget::progress_bar::determinate_linear(progress)
+                            .girth(progress_bar_height)
                             .into(),
                         if controller.is_paused() {
                             widget::tooltip(
@@ -842,7 +840,7 @@ impl App {
     fn search_database(&self) -> Element<'_, Message> {
         let cosmic_theme::Spacing { space_m, .. } = theme::active().cosmic().spacing;
 
-        let mut column = widget::column().spacing(space_m);
+        let mut column = widget::column::with_capacity(0).spacing(space_m);
         column = column.push(widget::text::heading(fl!("search-previous")));
         column = column.push(widget::row::with_children(vec![
             widget::dropdown(
@@ -870,15 +868,15 @@ impl App {
 
         column = column.push(widget::text::heading(fl!("search-mediatypes")));
         column = column.push(widget::row::with_children(vec![
-            widget::checkbox(fl!("search-images"), self.search.image)
+            widget::checkbox(self.search.image).label(fl!("search-images"))
                 .on_toggle(|b| Message::SearchImages(b))
                 .into(),
             widget::space::horizontal().into(),
-            widget::checkbox(fl!("search-videos"), self.search.video)
+            widget::checkbox(self.search.video).label(fl!("search-videos"))
                 .on_toggle(|b| Message::SearchVideos(b))
                 .into(),
             widget::space::horizontal().into(),
-            widget::checkbox(fl!("search-audios"), self.search.audio)
+            widget::checkbox(self.search.audio).label(fl!("search-audios"))
                 .on_toggle(|b| Message::SearchAudios(b))
                 .into(),
         ]));
@@ -892,8 +890,8 @@ impl App {
             widget::tooltip(
                 widget::text_input("".to_string(), self.search.from_string.as_str())
                     .id(self.search_from_string.clone())
-                    .on_input(Message::SearchSearchFromString)
-                    .on_submit(Message::SearchSearchFromStringSubmit),
+                    .on_input(|value| Message::SearchSearchFromString(value))
+                    .on_submit(|_| Message::SearchSearchFromStringSubmit),
                 widget::text::body(fl!("search-tooltip-date")),
                 widget::tooltip::Position::Top,
             )
@@ -901,108 +899,106 @@ impl App {
             widget::tooltip(
                 widget::text_input("".to_string(), self.search.to_string.as_str())
                     .id(self.search_to_string.clone())
-                    .on_input(Message::SearchSearchToString)
-                    .on_submit(Message::SearchSearchToStringSubmit),
+                    .on_input(|value| Message::SearchSearchToString(value))
+                    .on_submit(|_| Message::SearchSearchToStringSubmit),
                 widget::text::body(fl!("search-tooltip-date")),
                 widget::tooltip::Position::Top,
             )
             .into(),
         ]));
         column = column.push(widget::row::with_children(vec![
-            widget::checkbox(fl!("search-filepath"), self.search.filepath)
+            widget::checkbox(self.search.filepath).label(fl!("search-filepath"))
                 .on_toggle(move |value| Message::SearchFilepath(value))
                 .into(),
             widget::space::horizontal().into(),
-            widget::checkbox(fl!("search-title"), self.search.title)
+            widget::checkbox(self.search.title).label(fl!("search-title"))
                 .on_toggle(move |value| Message::SearchTitle(value))
                 .into(),
             widget::space::horizontal().into(),
-            widget::checkbox(fl!("search-tag"), self.search.tags)
+            widget::checkbox(self.search.tags).label(fl!("search-tag"))
                 .on_toggle(move |value| Message::SearchTag(value))
                 .into(),
         ]));
         column = column.push(widget::row::with_children(vec![
-            widget::checkbox(fl!("search-description"), self.search.description)
+            widget::checkbox(self.search.description).label(fl!("search-description"))
                 .on_toggle(move |value| Message::SearchDescription(value))
                 .into(),
             widget::space::horizontal().into(),
-            widget::checkbox(fl!("search-actor"), self.search.actor)
+            widget::checkbox(self.search.actor).label(fl!("search-actor"))
                 .on_toggle(move |value| Message::SearchActor(value))
                 .into(),
             widget::space::horizontal().into(),
-            widget::checkbox(fl!("search-director"), self.search.director)
+            widget::checkbox(self.search.director).label(fl!("search-director"))
                 .on_toggle(move |value| Message::SearchDirector(value))
                 .into(),
         ]));
         column = column.push(widget::row::with_children(vec![
-            widget::checkbox(fl!("search-album"), self.search.album)
+            widget::checkbox(self.search.album).label(fl!("search-album"))
                 .on_toggle(move |value| Message::SearchAlbum(value))
                 .into(),
             widget::space::horizontal().into(),
-            widget::checkbox(fl!("search-composer"), self.search.composer)
+            widget::checkbox(self.search.composer).label(fl!("search-composer"))
                 .on_toggle(move |value| Message::SearchComposer(value))
                 .into(),
             widget::space::horizontal().into(),
-            widget::checkbox(fl!("search-genre"), self.search.genre)
+            widget::checkbox(self.search.genre).label(fl!("search-genre"))
                 .on_toggle(move |value| Message::SearchGenre(value))
                 .into(),
         ]));
         column = column.push(widget::row::with_children(vec![
-            widget::checkbox(fl!("search-artist"), self.search.artist)
+            widget::checkbox(self.search.artist).label(fl!("search-artist"))
                 .on_toggle(move |value| Message::SearchArtist(value))
                 .into(),
             widget::space::horizontal().into(),
-            widget::checkbox(fl!("search-album_artist"), self.search.album_artist)
+            widget::checkbox(self.search.album_artist).label(fl!("search-album_artist"))
                 .on_toggle(move |value| Message::SearchAlbumartist(value))
                 .into(),
             widget::space::horizontal().into(),
-            widget::checkbox(fl!("search-duration"), self.search.duration)
+            widget::checkbox(self.search.duration).label(fl!("search-duration"))
                 .on_toggle(move |value| Message::SearchDuration(value))
                 .into(),
         ]));
         column = column.push(widget::row::with_children(vec![
-            widget::checkbox(fl!("search-creation_date"), self.search.creation_date)
+            widget::checkbox(self.search.creation_date).label(fl!("search-creation_date"))
                 .on_toggle(move |value| Message::SearchCreationDate(value))
                 .into(),
             widget::space::horizontal().into(),
-            widget::checkbox(
-                fl!("search-modification_date"),
-                self.search.modification_date,
-            )
-            .on_toggle(move |value| Message::SearchModificationDate(value))
+            widget::checkbox(self.search.modification_date)
+                .label(fl!("search-modification_date"))
+                .on_toggle(move |value| Message::SearchModificationDate(value))
             .into(),
             widget::space::horizontal().into(),
-            widget::checkbox(fl!("search-release_date"), self.search.release_date)
+            widget::checkbox(self.search.release_date).label(fl!("search-release_date"))
                 .on_toggle(move |value| Message::SearchReleaseDate(value))
                 .into(),
         ]));
         column = column.push(widget::row::with_children(vec![
-            widget::checkbox(fl!("search-lense_model"), self.search.lense_model)
+            widget::checkbox(self.search.lense_model).label(fl!("search-lense_model"))
                 .on_toggle(move |value| Message::SearchLenseModel(value))
                 .into(),
             widget::space::horizontal().into(),
-            widget::checkbox(fl!("search-focal_length"), self.search.focal_length)
+            widget::checkbox(self.search.focal_length).label(fl!("search-focal_length"))
                 .on_toggle(move |value| Message::SearchFocalLength(value))
                 .into(),
             widget::space::horizontal().into(),
-            widget::checkbox(fl!("search-exposure_time"), self.search.exposure_time)
+            widget::checkbox(self.search.exposure_time).label(fl!("search-exposure_time"))
                 .on_toggle(move |value| Message::SearchExposureTime(value))
                 .into(),
             widget::space::horizontal().into(),
-            widget::checkbox(fl!("search-fnumber"), self.search.fnumber)
+            widget::checkbox(self.search.fnumber).label(fl!("search-fnumber"))
                 .on_toggle(move |value| Message::SearchFNumber(value))
                 .into(),
         ]));
         column = column.push(widget::row::with_children(vec![
-            widget::checkbox(fl!("search-gps_latitude"), self.search.gps_latitude)
+            widget::checkbox(self.search.gps_latitude).label(fl!("search-gps_latitude"))
                 .on_toggle(move |value| Message::SearchGpsLatitude(value))
                 .into(),
             widget::space::horizontal().into(),
-            widget::checkbox(fl!("search-gps_longitude"), self.search.gps_longitude)
+            widget::checkbox(self.search.gps_longitude).label(fl!("search-gps_longitude"))
                 .on_toggle(move |value| Message::SearchGpsLongitude(value))
                 .into(),
             widget::space::horizontal().into(),
-            widget::checkbox(fl!("search-gps_altitude"), self.search.gps_altitude)
+            widget::checkbox(self.search.gps_altitude).label(fl!("search-gps_altitude"))
                 .on_toggle(move |value| Message::SearchGpsAltitude(value))
                 .into(),
         ]));
@@ -1170,8 +1166,7 @@ impl App {
                         .padding(1)
                         //TODO: move style to libcosmic
                         .class(theme::Container::custom(|theme| {
-                            let cosmic = theme.cosmic();
-                            let component = &cosmic.background.component;
+                            let component = theme.current_container();
                             widget::container::Style {
                                 icon_color: Some(component.on.into()),
                                 text_color: Some(component.on.into()),
@@ -1242,8 +1237,7 @@ impl App {
                 )
                 //TODO: move style to libcosmic
                 .class(theme::Container::custom(|theme| {
-                    let cosmic = theme.cosmic();
-                    let component = &cosmic.background.component;
+                    let component = theme.current_container();
                     widget::container::Style {
                         icon_color: Some(component.on.into()),
                         text_color: Some(component.on.into()),
@@ -1309,7 +1303,6 @@ impl App {
         let video_player = VideoPlayer::new(&mut video)
             .mouse_hidden(!self.video_view.controls)
             .on_end_of_stream(Message::EndOfStream)
-            .on_missing_plugin(Message::MissingPlugin)
             .on_new_frame(Message::NewFrame)
             .width(3840.0)
             .height(2160.0);
@@ -1403,8 +1396,7 @@ impl App {
                                 .padding(1)
                                 //TODO: move style to libcosmic
                                 .class(theme::Container::custom(|theme| {
-                                    let cosmic = theme.cosmic();
-                                    let component = &cosmic.background.component;
+                                    let component = theme.current_container();
                                     widget::container::Style {
                                         icon_color: Some(component.on.into()),
                                         text_color: Some(component.on.into()),
@@ -1453,8 +1445,7 @@ impl App {
                         .padding(1)
                         //TODO: move style to libcosmic
                         .class(theme::Container::custom(|theme| {
-                            let cosmic = theme.cosmic();
-                            let component = &cosmic.background.component;
+                            let component = theme.current_container();
                             widget::container::Style {
                                 icon_color: Some(component.on.into()),
                                 text_color: Some(component.on.into()),
@@ -1698,7 +1689,6 @@ impl App {
         let audio_player = AudioPlayer::new(audio)
             .mouse_hidden(!self.audio_view.controls)
             .on_end_of_stream(Message::EndOfStream)
-            .on_missing_plugin(Message::MissingPlugin)
             .on_new_frame(Message::NewFrame)
             .width(1920.0)
             .height(1080.0);
@@ -1793,8 +1783,7 @@ impl App {
                                 .padding(1)
                                 //TODO: move style to libcosmic
                                 .class(theme::Container::custom(|theme| {
-                                    let cosmic = theme.cosmic();
-                                    let component = &cosmic.background.component;
+                                    let component = theme.current_container();
                                     widget::container::Style {
                                         icon_color: Some(component.on.into()),
                                         text_color: Some(component.on.into()),
@@ -1843,8 +1832,7 @@ impl App {
                         .padding(1)
                         //TODO: move style to libcosmic
                         .class(theme::Container::custom(|theme| {
-                            let cosmic = theme.cosmic();
-                            let component = &cosmic.background.component;
+                            let component = theme.current_container();
                             widget::container::Style {
                                 icon_color: Some(component.on.into()),
                                 text_color: Some(component.on.into()),
@@ -2112,14 +2100,14 @@ impl App {
         if self.active_view == Mode::Audio {
             if let Some(audio) = self.audio_view.audio_opt.as_mut() {
                 if !audio.paused() {
-                    audio.set_paused(true);
+                    let _ = audio.set_paused(true);
                 }
             }
         }
         if self.active_view == Mode::Video {
             if let Some(video) = self.video_view.video_opt.as_mut() {
                 if !video.paused() {
-                    video.set_paused(true);
+                    let _ = video.set_paused(true);
                 }
             }
         }
@@ -2390,7 +2378,7 @@ impl Application for App {
         (app, Task::batch(commands))
     }
 
-    fn nav_bar(&self) -> Option<Element<'_, message::Message<Self::Message>>> {
+    fn nav_bar(&self) -> Option<Element<'_, cosmic::Action<Self::Message>>> {
         if !self.core().nav_bar_active() {
             return None;
         }
@@ -2398,20 +2386,20 @@ impl Application for App {
         let nav_model = self.nav_model()?;
 
         let mut nav = cosmic::widget::nav_bar(nav_model, |entity| {
-            cosmic::app::Message::Cosmic(cosmic::app::cosmic::Message::NavBar(entity))
+            message::cosmic(cosmic::app::Action::NavBar(entity))
         })
         .drag_id(self.nav_drag_id)
-        .on_dnd_enter(|entity, _| cosmic::app::Message::App(Message::DndEnterNav(entity)))
-        .on_dnd_leave(|_| cosmic::app::Message::App(Message::DndExitNav))
+        .on_dnd_enter(|entity, _| message::app(Message::DndEnterNav(entity)))
+        .on_dnd_leave(|_| message::app(Message::DndExitNav))
         .on_dnd_drop(|entity, data, action| {
-            cosmic::app::Message::App(Message::DndDropNav(entity, data, action))
+            message::app(Message::DndDropNav(entity, data, action))
         })
-        .on_context(|entity| cosmic::app::Message::App(Message::NavBarContext(entity)))
-        .on_close(|entity| cosmic::app::Message::App(Message::NavBarClose(entity)))
+        .on_context(|entity| message::app(Message::NavBarContext(entity)))
+        .on_close(|entity| message::app(Message::NavBarClose(entity)))
         .on_middle_press(|entity| {
-            cosmic::app::Message::App(Message::NavMenuAction(NavMenuAction::Open(entity)))
+            message::app(Message::NavMenuAction(NavMenuAction::Open(entity)))
         })
-        .context_menu(self.nav_context_menu(self.nav_bar_context_id))
+        .context_menu(self.nav_context_menu())
         .close_icon(
             widget::icon::from_name("media-eject-symbolic")
                 .size(16)
@@ -2431,8 +2419,11 @@ impl Application for App {
 
     fn nav_context_menu(
         &self,
-        entity: widget::nav_bar::Id,
-    ) -> Option<Vec<widget::menu::Tree<'_, cosmic::app::Message<Self::Message>>>> {
+    ) -> Option<Vec<widget::menu::Tree<cosmic::action::Action<Self::Message>>>> {
+        let entity = self.nav_bar_context_id;
+        if entity.is_null() {
+            return None;
+        }
         let favorite_index_opt = self.nav_model.data::<FavoriteIndex>(entity);
         let location_opt = self.nav_model.data::<Location>(entity);
 
@@ -2572,7 +2563,7 @@ impl Application for App {
         // of closing everything on one press
         if self.core.window.show_context {
             self.set_show_context(false);
-            return cosmic::task::message(app::Message::App(Message::SetShowDetails(false)));
+            return cosmic::task::message(Message::SetShowDetails(false));
         }
         if self.search_get().is_some() {
             // Close search if open
@@ -2630,7 +2621,6 @@ impl Application for App {
             Message::RecursiveScanDirectories(entity_opt) => {
                 self.recursive_scan_directories(entity_opt)
             }
-            Message::MissingPlugin(element) => self.missing_plugin(element),
             Message::AudioMessage(audio_message) => self.audio_message(audio_message),
             Message::Config(config) => self.config(config),
             Message::Copy(entity_opt) => self.copy(entity_opt),
@@ -3027,8 +3017,8 @@ impl Application for App {
                     widget::button::standard(fl!("connecting"))
                 } else {
                     text_input = text_input
-                        .on_input(Message::NetworkDriveInput)
-                        .on_submit(Message::NetworkDriveSubmit);
+                        .on_input(|value| Message::NetworkDriveInput(value))
+                        .on_submit(|_| Message::NetworkDriveSubmit);
                     widget::button::standard(fl!("connect")).on_press(Message::NetworkDriveSubmit)
                 };
                 context_drawer::context_drawer(
@@ -3061,7 +3051,7 @@ impl Application for App {
                         kind.clone(),
                     )),
                 )
-                .header_actions(actions)
+                .actions(widget::row::with_children(actions))
             }
             ContextPage::Settings => context_drawer::context_drawer(
                 self.settings(),
@@ -3194,7 +3184,7 @@ impl Application for App {
                     //TODO: what should submit do?
                     //TODO: button for showing password
                     controls.push(
-                        widget::checkbox(fl!("remember-password"), *remember)
+                        widget::checkbox(*remember).label(fl!("remember-password"))
                             .on_toggle(move |value| {
                                 Message::DialogUpdate(DialogPage::NetworkAuth {
                                     mounter_key: *mounter_key,
@@ -3311,7 +3301,12 @@ impl Application for App {
                                         dir: *dir,
                                     })
                                 })
-                                .on_submit_maybe(complete_maybe)
+                                .on_submit_maybe(
+                                    complete_maybe.as_ref().map(|msg| {
+                                        let owned = msg.clone();
+                                        move |_| owned.clone()
+                                    }),
+                                )
                                 .into(),
                         ])
                         .spacing(space_xxs),
@@ -3353,7 +3348,12 @@ impl Application for App {
                                         tag: tag.to_string(),
                                     })
                                 })
-                                .on_submit_maybe(complete_maybe)
+                                .on_submit_maybe(
+                                    complete_maybe.as_ref().map(|msg| {
+                                        let owned = msg.clone();
+                                        move |_| owned.clone()
+                                    }),
+                                )
                                 .into(),
                         ])
                         .spacing(space_xxs),
@@ -3386,7 +3386,7 @@ impl Application for App {
                                         .size(16)
                                         .into()
                                 } else {
-                                    widget::Space::with_width(Length::Fixed(16.0)).into()
+                                    widget::Space::new().width(16.0).into()
                                 },
                             ])
                             .spacing(space_s)
@@ -3483,7 +3483,12 @@ impl Application for App {
                                         dir: *dir,
                                     })
                                 })
-                                .on_submit_maybe(complete_maybe)
+                                .on_submit_maybe(
+                                    complete_maybe.as_ref().map(|msg| {
+                                        let owned = msg.clone();
+                                        move |_| owned.clone()
+                                    }),
+                                )
                                 .into(),
                         ])
                         .spacing(space_xxs),
@@ -3507,7 +3512,7 @@ impl Application for App {
                 if *multiple {
                     dialog
                         .control(
-                            widget::checkbox(fl!("apply-to-all"), *apply_to_all).on_toggle(
+                            widget::checkbox(*apply_to_all).label(fl!("apply-to-all")).on_toggle(
                                 |apply_to_all| {
                                     Message::DialogUpdate(DialogPage::Replace {
                                         from: from.clone(),
@@ -3601,7 +3606,7 @@ impl Application for App {
         //TODO: get height from theme?
         let progress_bar_height = Length::Fixed(4.0);
         let progress_bar =
-            widget::progress_bar(0.0..=1.0, total_progress).height(progress_bar_height);
+            widget::progress_bar::determinate_linear(total_progress).girth(progress_bar_height);
 
         let container = widget::layer_container(widget::column::with_children(vec![
             widget::row::with_children(vec![
@@ -3641,7 +3646,7 @@ impl Application for App {
             .align_y(Alignment::Center)
             .into(),
             widget::text::body(title).into(),
-            widget::Space::with_height(space_s).into(),
+            widget::Space::new().height(space_s as f32).into(),
             widget::row::with_children(vec![
                 widget::button::link("details".to_string())
                     .on_press(Message::ToggleContextPage(ContextPage::EditHistory))
@@ -3692,7 +3697,7 @@ impl Application for App {
                         .width(Length::Fixed(240.0))
                         .id(self.search_id.clone())
                         .on_clear(Message::SearchClear)
-                        .on_input(Message::SearchInput)
+                        .on_input(|value| Message::SearchInput(value))
                         .into(),
                 );
             }
@@ -3731,7 +3736,7 @@ impl Application for App {
                                 .width(Length::Fill)
                                 .id(self.search_id.clone())
                                 .on_clear(Message::SearchClear)
-                                .on_input(Message::SearchInput),
+                                .on_input(|value| Message::SearchInput(value)),
                         )
                         .padding(space_xxs),
                     )
@@ -3829,11 +3834,7 @@ impl Application for App {
             Some(WindowKind::Preview(entity_opt, kind)) => self.preview(&entity_opt, &kind, false),
             None => {
                 //TODO: distinct views per monitor in desktop mode
-                return self.view_main().map(|message| match message {
-                    app::Message::App(app) => app,
-                    app::Message::Cosmic(cosmic) => Message::Cosmic(cosmic),
-                    app::Message::None => Message::None,
-                });
+                return self.view();
             }
         };
 
@@ -3899,9 +3900,11 @@ impl Application for App {
                 }
                 Message::SystemThemeModeChange(update.config)
             }),
-            Subscription::run_with_id(
+            Subscription::run_with(
                 TypeId::of::<WatcherSubscription>(),
-                stream::channel(100, |mut output| async move {
+                |_data: &TypeId| stream::channel::<Message>(
+                    100,
+                    |mut output: futures::channel::mpsc::Sender<Message>| async move {
                     let watcher_res = {
                         let mut output = output.clone();
                         new_debouncer(
@@ -3975,9 +3978,11 @@ impl Application for App {
                     std::future::pending().await
                 }),
             ),
-            Subscription::run_with_id(
+            Subscription::run_with(
                 TypeId::of::<TrashWatcherSubscription>(),
-                stream::channel(25, |mut output| async move {
+                |_data: &TypeId| stream::channel::<Message>(
+                    25,
+                    |mut output: futures::channel::mpsc::Sender<Message>| async move {
                     let watcher_res = new_debouncer(
                         time::Duration::from_millis(250),
                         Some(time::Duration::from_millis(250)),
@@ -4074,37 +4079,40 @@ impl Application for App {
                 #[cfg(feature = "notify")]
                 {
                     struct NotificationSubscription;
-                    subscriptions.push(Subscription::run_with_id(
+                    subscriptions.push(Subscription::run_with(
                         TypeId::of::<NotificationSubscription>(),
-                        stream::channel(1, move |msg_tx| async move {
-                            let msg_tx = Arc::new(tokio::sync::Mutex::new(msg_tx));
-                            tokio::task::spawn_blocking(move || {
-                                match notify_rust::Notification::new()
-                                    .summary(&fl!("notification-in-progress"))
-                                    .timeout(notify_rust::Timeout::Never)
-                                    .show()
-                                {
-                                    Ok(notification) => {
-                                        let _ = futures::executor::block_on(async {
-                                            msg_tx
-                                                .lock()
-                                                .await
-                                                .send(Message::Notification(Arc::new(Mutex::new(
-                                                    notification,
-                                                ))))
-                                                .await
-                                        });
+                        |_data: &TypeId| stream::channel::<Message>(
+                            1,
+                            move |msg_tx: futures::channel::mpsc::Sender<Message>| async move {
+                                let msg_tx = Arc::new(tokio::sync::Mutex::new(msg_tx));
+                                tokio::task::spawn_blocking(move || {
+                                    match notify_rust::Notification::new()
+                                        .summary(&fl!("notification-in-progress"))
+                                        .timeout(notify_rust::Timeout::Never)
+                                        .show()
+                                    {
+                                        Ok(notification) => {
+                                            let _ = futures::executor::block_on(async {
+                                                msg_tx
+                                                    .lock()
+                                                    .await
+                                                    .send(Message::Notification(Arc::new(
+                                                        Mutex::new(notification),
+                                                    )))
+                                                    .await
+                                            });
+                                        }
+                                        Err(err) => {
+                                            log::warn!("failed to create notification: {}", err);
+                                        }
                                     }
-                                    Err(err) => {
-                                        log::warn!("failed to create notification: {}", err);
-                                    }
-                                }
-                            })
-                            .await
-                            .unwrap();
+                                })
+                                .await
+                                .unwrap();
 
-                            std::future::pending().await
-                        }),
+                                std::future::pending().await
+                            },
+                        ),
                     ));
                 }
             }
@@ -4115,29 +4123,32 @@ impl Application for App {
             let id = *id;
             let pending_operation = pending_operation.clone();
             let controller = controller.clone();
-            subscriptions.push(Subscription::run_with_id(
-                id,
-                stream::channel(16, move |msg_tx| async move {
-                    let msg_tx = Arc::new(tokio::sync::Mutex::new(msg_tx));
-                    match pending_operation.perform(&msg_tx, controller).await {
-                        Ok(result_paths) => {
-                            let _ = msg_tx
-                                .lock()
-                                .await
-                                .send(Message::PendingComplete(id, result_paths))
-                                .await;
+            subscriptions.push(Subscription::run_with(
+                (id, pending_operation, controller),
+                |data: &(u64, Operation, Controller)| {
+                    let (id, pending_operation, controller) = data.clone();
+                    stream::channel::<Message>(16, move |msg_tx| async move {
+                        let msg_tx = Arc::new(tokio::sync::Mutex::new(msg_tx));
+                        match pending_operation.perform(&msg_tx, controller).await {
+                            Ok(result_paths) => {
+                                let _ = msg_tx
+                                    .lock()
+                                    .await
+                                    .send(Message::PendingComplete(id, result_paths))
+                                    .await;
+                            }
+                            Err(err) => {
+                                let _ = msg_tx
+                                    .lock()
+                                    .await
+                                    .send(Message::PendingError(id, err.to_string()))
+                                    .await;
+                            }
                         }
-                        Err(err) => {
-                            let _ = msg_tx
-                                .lock()
-                                .await
-                                .send(Message::PendingError(id, err.to_string()))
-                                .await;
-                        }
-                    }
 
-                    std::future::pending().await
-                }),
+                        std::future::pending().await
+                    })
+                },
             ));
         }
 

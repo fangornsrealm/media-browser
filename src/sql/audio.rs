@@ -432,68 +432,32 @@ pub fn audio_by_id(
                     loop {
                         match rows.next() {
                             Ok(Some(row)) => {
-                                match row.get(0) {
-                                    Ok(val) => v.name = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read name for audio: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(0) {
+                                    v.name = val;
                                 }
-                                match row.get(1) {
-                                    Ok(val) => v.title = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read title for audio: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(1) {
+                                    v.title = val;
                                 }
-                                match row.get(2) {
-                                    Ok(val) => v.date = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read date for audio: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(2) {
+                                    v.date = val;
                                 }
-                                match row.get(3) {
-                                    Ok(val) => v.poster = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read poster for audio: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(3) {
+                                    v.poster = val;
                                 }
-                                match row.get(4) {
-                                    Ok(val) => v.thumb = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read bitrate for audio: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(4) {
+                                    v.thumb = val;
                                 }
-                                match row.get(5) {
-                                    Ok(val) => v.duration = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read duration for audio: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(5) {
+                                    v.duration = val;
                                 }
-                                match row.get(6) {
-                                    Ok(val) => v.genre = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read genre for audio: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(6) {
+                                    v.genre = val;
                                 }
-                                match row.get(7) {
-                                    Ok(val) => v.composer = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read composer for audio: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(7) {
+                                    v.composer = val;
                                 }
-                                match row.get(8) {
-                                    Ok(val) => v.track_id = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read track_id for audio: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(8) {
+                                    v.track_id = val;
                                 }
                             }
                             Ok(None) => {
@@ -745,7 +709,7 @@ pub fn audio_by_id(
             log::error!("could not prepare SQL statement: {}", err);
         }
     }
-    let query = "SELECT tag_id, tag FROM tags
+    let query = "SELECT tags.tag_id, tags.tag FROM tags
                         INNER JOIN tags_media_map
                         ON tags_media_map.tagmap_id = tags.tag_id
                         WHERE tags_media_map.media_id = ?1";
@@ -826,68 +790,32 @@ pub fn audio(
                     loop {
                         match rows.next() {
                             Ok(Some(row)) => {
-                                match row.get(0) {
-                                    Ok(val) => v.name = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read name for audio: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(0) {
+                                    v.name = val;
                                 }
-                                match row.get(1) {
-                                    Ok(val) => v.title = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read title for audio: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(1) {
+                                    v.title = val;
                                 }
-                                match row.get(2) {
-                                    Ok(val) => v.date = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read date for audio: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(2) {
+                                    v.date = val;
                                 }
-                                match row.get(3) {
-                                    Ok(val) => v.poster = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read poster for audio: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(3) {
+                                    v.poster = val;
                                 }
-                                match row.get(4) {
-                                    Ok(val) => v.thumb = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read bitrate for audio: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(4) {
+                                    v.thumb = val;
                                 }
-                                match row.get(5) {
-                                    Ok(val) => v.duration = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read duration for audio: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(5) {
+                                    v.duration = val;
                                 }
-                                match row.get(6) {
-                                    Ok(val) => v.genre = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read genre for audio: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(6) {
+                                    v.genre = val;
                                 }
-                                match row.get(7) {
-                                    Ok(val) => v.composer = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read composer for audio: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(7) {
+                                    v.composer = val;
                                 }
-                                match row.get(8) {
-                                    Ok(val) => v.track_id = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read track_id for audio: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(8) {
+                                    v.track_id = val;
                                 }
                             }
                             Ok(None) => {
@@ -1139,7 +1067,7 @@ pub fn audio(
             log::error!("could not prepare SQL statement: {}", err);
         }
     }
-    let query = "SELECT tag_id, tag FROM tags
+    let query = "SELECT tags.tag_id, tags.tag FROM tags
                         INNER JOIN tags_media_map
                         ON tags_media_map.tagmap_id = tags.tag_id
                         WHERE tags_media_map.media_id = ?1";

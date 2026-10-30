@@ -5,22 +5,21 @@
 // Copyright 2024 Alexander Schwarzkopf
 
 use cosmic::{
-    app::{self, context_drawer, cosmic::Cosmic, message, Core, Task},
+    Application, ApplicationExt, Element,
+    app::{self, Core, Task, context_drawer, cosmic::Cosmic},
     cosmic_config, cosmic_theme, executor,
     iced::{
-        event,
+        Alignment, Event, Length, Size, Subscription, event,
         futures::{self, SinkExt},
         keyboard::{Event as KeyEvent, Key, Modifiers},
-        stream, window, Alignment, Event, Length, Size, Subscription,
+        stream, window,
     },
     theme,
     widget::{self, menu::KeyBind, segmented_button},
-    Application, ApplicationExt, Element,
 };
 use notify_debouncer_full::{
-    new_debouncer,
+    DebouncedEvent, Debouncer, FileIdMap, new_debouncer,
     notify::{self, RecommendedWatcher, Watcher},
-    DebouncedEvent, Debouncer, FileIdMap,
 };
 use recently_used_xbel::update_recently_used;
 use std::{
@@ -40,12 +39,12 @@ use crate::{
     key_bind::key_binds,
     localize::LANGUAGE_SORTER,
     menu,
-    mounter::{MounterItem, MounterItems, MounterKey, MounterMessage, MOUNTERS},
+    mounter::{MOUNTERS, MounterItem, MounterItems, MounterKey, MounterMessage},
     tab::{self, ItemMetadata, Location, Tab},
 };
 
 #[derive(Clone, Debug)]
-pub struct DialogMessage(app::Message<Message>);
+pub struct DialogMessage(cosmic::action::Action<Message>);
 
 #[derive(Clone, Debug)]
 pub enum DialogResult {
@@ -196,12 +195,9 @@ impl<M: Send + 'static> Dialog<M> {
                 mapper,
                 on_result: Box::new(on_result),
             },
-            Task::batch([
-                window_command.map(|_id| message::none()),
-                cosmic_command
-                    .map(DialogMessage)
-                    .map(move |message| app::Message::App(mapper(message))),
-            ]),
+            cosmic_command.map(move |action| {
+                cosmic::Action::App(mapper(DialogMessage(action)))
+            }),
         )
     }
 
@@ -211,8 +207,7 @@ impl<M: Send + 'static> Dialog<M> {
         self.cosmic
             .app
             .update_title()
-            .map(DialogMessage)
-            .map(move |message| app::Message::App(mapper(message)))
+            .map(move |action| cosmic::Action::App(mapper(DialogMessage(action))))
     }
 
     pub fn set_accept_label(&mut self, accept_label: impl Into<String>) {
@@ -242,8 +237,7 @@ impl<M: Send + 'static> Dialog<M> {
         self.cosmic
             .app
             .rescan_tab()
-            .map(DialogMessage)
-            .map(move |message| app::Message::App(mapper(message)))
+            .map(move |action| cosmic::Action::App(mapper(DialogMessage(action))))
     }
 
     pub fn subscription(&self) -> Subscription<M> {
@@ -255,16 +249,14 @@ impl<M: Send + 'static> Dialog<M> {
 
     pub fn update(&mut self, message: DialogMessage) -> Task<M> {
         let mapper = self.mapper;
-        let command = self
-            .cosmic
+        let command = self.cosmic
             .update(message.0)
-            .map(DialogMessage)
-            .map(move |message| app::Message::App(mapper(message)));
+            .map(move |action| cosmic::Action::App(mapper(DialogMessage(action))));
         if let Some(result) = self.cosmic.app.result_opt.take() {
             let on_result_message = (self.on_result)(result);
             Task::batch([
                 command,
-                Task::perform(async move { app::Message::App(on_result_message) }, |x| x),
+                Task::perform(async move { on_result_message }, |x| cosmic::Action::App(x)),
             ])
         } else {
             command
@@ -411,8 +403,8 @@ impl App {
             col = col.push(
                 widget::text_input("", filename)
                     .id(self.filename_id.clone())
-                    .on_input(Message::Filename)
-                    .on_submit(Message::Save(false)),
+                    .on_input(|value| Message::Filename(value))
+                    .on_submit(|_| Message::Save(false)),
             );
         }
 
@@ -431,9 +423,9 @@ impl App {
         for (choice_i, choice) in self.choices.iter().enumerate() {
             match choice {
                 DialogChoice::CheckBox { label, value, .. } => {
-                    row = row.push(widget::checkbox(label, *value).on_toggle(move |checked| {
-                        Message::Choice(choice_i, if checked { 1 } else { 0 })
-                    }));
+                    row = row.push(widget::checkbox(*value).label(label).on_toggle(
+                        move |checked| Message::Choice(choice_i, if checked { 1 } else { 0 }),
+                    ));
                 }
                 DialogChoice::ComboBox {
                     label,
@@ -524,11 +516,11 @@ impl App {
                 .await
                 {
                     Ok((parent_item_opt, items)) => {
-                        message::app(Message::TabRescan(location, parent_item_opt, items))
+                        cosmic::action::app(Message::TabRescan(location, parent_item_opt, items))
                     }
                     Err(err) => {
                         log::warn!("failed to rescan: {}", err);
-                        message::none()
+                        cosmic::action::none()
                     }
                 }
             },
@@ -832,7 +824,7 @@ impl Application for App {
                         self.preview(kind).map(Message::from),
                         Message::Preview,
                     )
-                    .header_actions(actions),
+                    .actions(widget::row::with_children(actions)),
                 )
             }
             _ => None,
@@ -900,7 +892,12 @@ impl Application for App {
                                         name,
                                     })
                                 })
-                                .on_submit_maybe(complete_maybe)
+                                .on_submit_maybe(
+                                    complete_maybe
+                                        .as_ref()
+                                        .map(|msg| msg.clone())
+                                        .map(|msg| move |_| msg.clone()),
+                                )
                                 .into(),
                         ])
                         .spacing(space_xxs),
@@ -944,7 +941,7 @@ impl Application for App {
                         .width(Length::Fixed(240.0))
                         .id(self.search_id.clone())
                         .on_clear(Message::SearchClear)
-                        .on_input(Message::SearchInput)
+                        .on_input(|value| Message::SearchInput(value))
                         .into(),
                 );
             }
@@ -979,7 +976,7 @@ impl Application for App {
         elements
     }
 
-    fn nav_bar(&self) -> Option<Element<'_, message::Message<Self::Message>>> {
+    fn nav_bar(&self) -> Option<Element<'_, cosmic::action::Action<Self::Message>>> {
         if !self.core().nav_bar_active() {
             return None;
         }
@@ -987,7 +984,7 @@ impl Application for App {
         let nav_model = self.nav_model()?;
 
         let mut nav = cosmic::widget::nav_bar(nav_model, |entity| {
-            cosmic::app::Message::Cosmic(cosmic::app::cosmic::Message::NavBar(entity))
+            cosmic::action::cosmic(cosmic::app::Action::NavBar(entity))
         })
         //TODO .on_close(|entity| cosmic::app::Message::App(Message::NavBarClose(entity)))
         .close_icon(
@@ -1025,7 +1022,9 @@ impl Application for App {
 
         if let Some(data) = self.nav_model.data::<MounterData>(entity).clone() {
             if let Some(mounter) = MOUNTERS.get(&data.0) {
-                return mounter.mount(data.1.clone()).map(|_| message::none());
+                return mounter
+                    .mount(data.1.clone())
+                    .map(|_| cosmic::action::none());
             }
         }
         Task::none()
@@ -1147,7 +1146,7 @@ impl Application for App {
             }
             Message::Key(modifiers, key) => {
                 for (key_bind, action) in self.key_binds.iter() {
-                    if key_bind.matches(modifiers, &key) {
+                    if key_bind.matches(modifiers, &key, None) {
                         return self.update(Message::from(action.message(None)));
                     }
                 }
@@ -1242,7 +1241,11 @@ impl Application for App {
                                                             }
                                                         }
                                                         Err(err) => {
-                                                            log::warn!("failed to reload metadata for {:?}: {}", path, err);
+                                                            log::warn!(
+                                                                "failed to reload metadata for {:?}: {}",
+                                                                path,
+                                                                err
+                                                            );
                                                         }
                                                     }
                                                     //TODO item.thumbnail_opt =
@@ -1403,11 +1406,9 @@ impl Application for App {
                             commands.push(Task::batch([self.update_watcher(), self.rescan_tab()]));
                         }
                         tab::Command::Iced(iced_command) => {
-                            commands.push(
-                                iced_command.0.map(|tab_message| {
-                                    message::app(Message::TabMessage(tab_message))
-                                }),
-                            );
+                            commands.push(iced_command.0.map(|tab_message| {
+                                cosmic::action::app(Message::TabMessage(tab_message))
+                            }));
                         }
                         tab::Command::Open(_item_path) => {
                             if self.flags.kind.save() {
@@ -1581,7 +1582,7 @@ impl Application for App {
                             .width(Length::Fill)
                             .id(self.search_id.clone())
                             .on_clear(Message::SearchClear)
-                            .on_input(Message::SearchInput),
+                            .on_input(|value| Message::SearchInput(value)),
                     )
                     .padding(space_xxs),
                 )
@@ -1620,9 +1621,11 @@ impl Application for App {
                 }
                 Message::Config(update.config)
             }),
-            Subscription::run_with_id(
+            Subscription::run_with(
                 TypeId::of::<WatcherSubscription>(),
-                stream::channel(100, |mut output| async move {
+                |_data: &TypeId| stream::channel::<Message>(
+                    100,
+                    |mut output: futures::channel::mpsc::Sender<Message>| async move {
                     let watcher_res = {
                         let mut output = output.clone();
                         new_debouncer(
@@ -1706,16 +1709,18 @@ impl Application for App {
         ];
 
         for (key, mounter) in MOUNTERS.iter() {
-            let key = *key;
-            subscriptions.push(mounter.subscription().map(move |mounter_message| {
-                match mounter_message {
-                    MounterMessage::Items(items) => Message::MounterItems(key, items),
-                    _ => {
-                        log::warn!("{:?} not supported in dialog mode", mounter_message);
-                        Message::None
-                    }
-                }
-            }));
+            subscriptions.push(
+                mounter
+                    .subscription()
+                    .with(*key)
+                    .map(|(key, mounter_message)| match mounter_message {
+                        MounterMessage::Items(items) => Message::MounterItems(key, items),
+                        _ => {
+                            log::warn!("{:?} not supported in dialog mode", mounter_message);
+                            Message::None
+                        }
+                    }),
+            );
         }
 
         Subscription::batch(subscriptions)

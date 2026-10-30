@@ -114,7 +114,7 @@ The file preview can be navigated by seleting via mouse or by Previous/Next butt
 
 ## Development status
 
-This project is developed and tested on Linux using Wayland and Pipewire. Gstreamer supports any audio and video pipeline. But the GUI is based on libcosmic, which needs to be installed to make the UI work properly. If compiled with `winit` feature, it will run on both X11 and Wayland.
+This project is developed and tested on Linux using Wayland and Pipewire. Video and audio playback is handled by [libmpv](https://mpv.io/) (the mpv media player core), which supports any audio and video pipeline. The GUI is based on libcosmic, which needs to be installed to make the UI work properly. If compiled with `winit` feature, it will run on both X11 and Wayland.
 
 > [!NOTE]
 > The current Status is feature complete for the 1.0 release. We are in beta mode for the release.
@@ -142,11 +142,9 @@ NFO files are additional files besides your media files. They need to follow rul
 > [!NOTE]
 > The DEB and RPM packages built below should automatically pull in all dependencies when installing it. But as COSMIC Desktop is currently not standard in distributions, these dependencies cannot be included. Installed like that - without the full COSMIC Desktop available - the program will *work*. But there will most likely be effects due to missing theming features.
 
-Video and audio playback requires [GStreamer](https://gstreamer.freedesktop.org/).
+Video and audio playback requires [libmpv](https://mpv.io/) (the `libmpv` shared library, part of [mpv](https://github.com/mpv-player/mpv)).
 
-Gstreamer is modular. Depending on what formats you want to playback (mp3, m4a, aiff, flac, mp4, mkv, wmv, av1, vp9, h264, hevc, ...) and what backend you want to use (pipewire, pulseaudio, alsa, jack, ...) specific gst-plugin-`format` have to be installed.
-
-[Installing Gstreamer on Linux](https://gstreamer.freedesktop.org/documentation/installing/on-linux.html?gi-language=c)
+libmpv ships its own decoders for the common formats (mp3, m4a, aiff, flac, mp4, mkv, wmv, av1, vp9, h264, hevc, ...) and audio output backends (pipewire, pulseaudio, alsa, jack, ...), so no additional codec or plugin packages are needed.
 
 Creation of video thumbnails and metadata extraction from video and audio require an installation of [ffmpeg](https://www.ffmpeg.org/) available to execute from the command line. Most linux distributions install that or at least have it available in the repositories. In some special cases it might be necessary to get ffmpeg from another source to support the media codecs in your media. But simple playback should be possible for a lot of codecs, which is good enough for what we need of it.
 
@@ -161,7 +159,7 @@ You will need a rust environment to compile the project.
 Installing build dependencies.
 
 ```sh
-sudo apt install build-essential cmake libxkbcommon-dev
+sudo apt install build-essential cmake libxkbcommon-dev libmpv-dev
 ```
 
 If you have problems to build on a system that does not have the COSMIC Desktop installed, it can help to install the dependencies for it.

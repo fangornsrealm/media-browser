@@ -6,8 +6,7 @@ Build-Depends:
     clang,
     debhelper-compat (=13),
     just (>= 1.13.0),
-    libgstreamer1.0-dev,
-    libgstreamer-plugins-base1.0-dev,
+    libmpv-dev,
     libxkbcommon-dev,
     pkg-config,
     rust-all,
@@ -17,7 +16,6 @@ Homepage: https://github.com/fangornsrealm/media-browser
 Package: media-browser
 Architecture: amd64 arm64
 Depends: ${misc:Depends}, ${shlibs:Depends},
-      gstreamer1.0-plugins-base,
-      gstreamer1.0-plugins-good,
+      libmpv2,
       ffmpeg
 Description: Media Browser with Database backend

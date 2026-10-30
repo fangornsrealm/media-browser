@@ -6,6 +6,8 @@
 
 #[cfg(feature = "desktop")]
 use cosmic::desktop;
+#[cfg(feature = "desktop")]
+use cosmic::desktop::IconSourceExt;
 use cosmic::widget;
 pub use mime_guess::Mime;
 use once_cell::sync::Lazy;
@@ -63,12 +65,7 @@ impl From<&desktop::DesktopEntryData> for MimeApp {
             path: app.path.clone(),
             name: app.name.clone(),
             exec: app.exec.clone(),
-            icon: match &app.icon {
-                desktop::IconSource::Name(name) => {
-                    widget::icon::from_name(name.as_str()).size(32).handle()
-                }
-                desktop::IconSource::Path(path) => widget::icon::from_path(path.clone()),
-            },
+            icon: app.icon.as_cosmic_icon(),
             is_default: false,
         }
     }
@@ -111,12 +108,10 @@ impl MimeAppCache {
         self.cache.clear();
         self.terminals.clear();
 
-        //TODO: get proper locale?
-        let locale = None;
-
         // Load desktop applications by supported mime types
         //TODO: hashmap for all apps by id?
-        let all_apps = desktop::load_applications(locale, false);
+        let locales: Vec<String> = vec![];
+        let all_apps: Vec<_> = desktop::load_applications(&locales, false, None).collect();
         for app in all_apps.iter() {
             for mime in app.mime_types.iter() {
                 let apps = self
@@ -204,7 +199,11 @@ impl MimeAppCache {
                                 {
                                     apps.push(MimeApp::from(app));
                                 } else {
-                                    log::debug!("failed to add association for {:?}: application {:?} not found", mime, filename);
+                                    log::debug!(
+                                        "failed to add association for {:?}: application {:?} not found",
+                                        mime,
+                                        filename
+                                    );
                                 }
                             }
                         }
@@ -243,7 +242,11 @@ impl MimeAppCache {
                                 if found {
                                     break;
                                 } else {
-                                    log::debug!("failed to set default for {:?}: application {:?} not found", mime, filename);
+                                    log::debug!(
+                                        "failed to set default for {:?}: application {:?} not found",
+                                        mime,
+                                        filename
+                                    );
                                 }
                             }
                         }

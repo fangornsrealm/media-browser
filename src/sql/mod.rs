@@ -279,7 +279,6 @@ pub fn home_dir_or_root() -> PathBuf {
 
 pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
     let sqlite_file;
-    let connection;
     match dirs::data_local_dir() {
         Some(pb) => {
             let mut dir = pb.join("media-browser");
@@ -297,15 +296,17 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
             sqlite_file = dir.join("metadata.sqlite");
         }
     }
-    if !sqlite_file.is_file() {
-        connection = Connection::open(sqlite_file)?;
+    // Always open and (re)create the schema with `IF NOT EXISTS` so that
+    // concurrent initializers (e.g. parallel tests) and re-runs against an
+    // existing database are safe and idempotent.
+    let connection = Connection::open(sqlite_file)?;
         // Enable WAL and a 5s busy timeout to reduce writer/reader contention
         // and avoid failing immediately on a locked database.
         connection.execute("PRAGMA journal_mode=WAL", ()).ok();
         connection.execute("PRAGMA busy_timeout=5000", ()).ok();
         // file_type: 0 other file, 1 image, 2, video, 3 audio
         match connection.execute(
-            "CREATE TABLE file_metadata (
+            "CREATE TABLE IF NOT EXISTS file_metadata (
                 filepath TEXT NOT NULL unique NOT NULL,
                 creation_time UNSIGNED BIG INT,
                 modification_time UNSIGNED BIG INT,
@@ -322,7 +323,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
             }
         }
         match connection.execute(
-            "CREATE INDEX index_file_metadata_filename ON file_metadata (filepath)",
+            "CREATE INDEX IF NOT EXISTS index_file_metadata_filename ON file_metadata (filepath)",
             (),
         ) {
             Ok(_ret) => {}
@@ -333,7 +334,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
         }
         match connection.execute(
             "
-            CREATE TABLE video_metadata (
+            CREATE TABLE IF NOT EXISTS video_metadata (
                 video_id INTEGER PRIMARY KEY,
                 name  TEXT NOT NULL,
                 title  TEXT NOT NULL,
@@ -356,7 +357,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
             }
         }
         match connection.execute(
-            "CREATE INDEX index_video_metadata_title ON video_metadata (title)",
+            "CREATE INDEX IF NOT EXISTS index_video_metadata_title ON video_metadata (title)",
             (),
         ) {
             Ok(_ret) => {}
@@ -367,7 +368,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
         }
         match connection.execute(
             "
-            CREATE TABLE subtitles (
+            CREATE TABLE IF NOT EXISTS subtitles (
                 subtitle_id INTEGER,
                 video_id INTEGER,
                 subpath TEXT,
@@ -382,7 +383,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
             }
         }
         match connection.execute(
-            "CREATE INDEX index_subtitles_video_id ON subtitles (video_id)",
+            "CREATE INDEX IF NOT EXISTS index_subtitles_video_id ON subtitles (video_id)",
             (),
         ) {
             Ok(_ret) => {}
@@ -393,7 +394,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
         }
         match connection.execute(
             "
-            CREATE TABLE audiolangs (
+            CREATE TABLE IF NOT EXISTS audiolangs (
                 audiolang_id INTEGER,
                 video_id INTEGER,
                 audiolang TEXT,
@@ -408,7 +409,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
             }
         }
         match connection.execute(
-            "CREATE INDEX index_audiolangs_video_id ON audiolangs (video_id)",
+            "CREATE INDEX IF NOT EXISTS index_audiolangs_video_id ON audiolangs (video_id)",
             (),
         ) {
             Ok(_ret) => {}
@@ -419,7 +420,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
         }
         match connection.execute(
             "
-            CREATE TABLE sublangs (
+            CREATE TABLE IF NOT EXISTS sublangs (
                 sublang_id INTEGER,
                 video_id INTEGER,
                 sublang TEXT,
@@ -434,7 +435,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
             }
         }
         match connection.execute(
-            "CREATE INDEX index_sublangs_video_id ON sublangs (video_id)",
+            "CREATE INDEX IF NOT EXISTS index_sublangs_video_id ON sublangs (video_id)",
             (),
         ) {
             Ok(_ret) => {}
@@ -445,7 +446,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
         }
         match connection.execute(
             "
-            CREATE TABLE chapters (
+            CREATE TABLE IF NOT EXISTS chapters (
                 chapter_id INTEGER,
                 video_id INTEGER,
                 title TEXT,
@@ -462,7 +463,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
             }
         }
         match connection.execute(
-            "CREATE INDEX index_chapters_video_id ON chapters (video_id)",
+            "CREATE INDEX IF NOT EXISTS index_chapters_video_id ON chapters (video_id)",
             (),
         ) {
             Ok(_ret) => {}
@@ -473,7 +474,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
         }
         match connection.execute(
             "
-        CREATE TABLE people (
+        CREATE TABLE IF NOT EXISTS people (
             person_id INTEGER,
             person_name TEXT,
             PRIMARY KEY(person_id AUTOINCREMENT)
@@ -486,7 +487,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
                 return Err(error);
             }
         }
-        match connection.execute("CREATE INDEX index_people_name ON people (person_name)", ()) {
+        match connection.execute("CREATE INDEX IF NOT EXISTS index_people_name ON people (person_name)", ()) {
             Ok(_ret) => {}
             Err(error) => {
                 log::error!("Failed to create index on directors: {}", error);
@@ -495,7 +496,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
         }
         match connection.execute(
             "
-            CREATE TABLE directors (
+            CREATE TABLE IF NOT EXISTS directors (
                 entry_id INTEGER,
                 director_id INTEGER,
                 video_id INTEGER,
@@ -510,7 +511,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
             }
         }
         match connection.execute(
-            "CREATE INDEX index_directors_video_id ON directors (video_id)",
+            "CREATE INDEX IF NOT EXISTS index_directors_video_id ON directors (video_id)",
             (),
         ) {
             Ok(_ret) => {}
@@ -521,7 +522,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
         }
         match connection.execute(
             "
-            CREATE TABLE actors (
+            CREATE TABLE IF NOT EXISTS actors (
                 entry_id INTEGER,
                 actor_id INTEGER,
                 video_id INTEGER,
@@ -536,7 +537,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
             }
         }
         match connection.execute(
-            "CREATE INDEX index_actors_video_id ON actors (video_id)",
+            "CREATE INDEX IF NOT EXISTS index_actors_video_id ON actors (video_id)",
             (),
         ) {
             Ok(_ret) => {}
@@ -547,7 +548,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
         }
         match connection.execute(
             "
-        CREATE TABLE collections (
+        CREATE TABLE IF NOT EXISTS collections (
             collection_id INTEGER,
             file_id INTEGER,
             collection_name TEXT,
@@ -566,7 +567,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
             }
         }
         match connection.execute(
-            "CREATE INDEX collection_file_id ON collections (file_id)",
+            "CREATE INDEX IF NOT EXISTS collection_file_id ON collections (file_id)",
             (),
         ) {
             Ok(_ret) => {}
@@ -576,7 +577,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
             }
         }
         match connection.execute(
-            "CREATE INDEX collection_collection_name ON collections (collection_name)",
+            "CREATE INDEX IF NOT EXISTS collection_collection_name ON collections (collection_name)",
             (),
         ) {
             Ok(_ret) => {}
@@ -588,7 +589,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
 
         match connection.execute(
             "
-            CREATE TABLE collections_map (
+            CREATE TABLE IF NOT EXISTS collections_map (
                 entry_id INTEGER,
                 collection_id INTEGER,
                 episode_id INTEGER,
@@ -609,7 +610,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
             }
         }
         match connection.execute(
-            "CREATE INDEX collection_map_episode_id ON collections_map (episode_id)",
+            "CREATE INDEX IF NOT EXISTS collection_map_episode_id ON collections_map (episode_id)",
             (),
         ) {
             Ok(_ret) => {}
@@ -620,7 +621,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
         }
         match connection.execute(
             "
-            CREATE TABLE audio_metadata (
+            CREATE TABLE IF NOT EXISTS audio_metadata (
                 audio_id INTEGER PRIMARY KEY,
                 name  TEXT NOT NULL,
                 title  TEXT NOT NULL,
@@ -643,7 +644,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
         }
         match connection.execute(
             "
-            CREATE TABLE albums (
+            CREATE TABLE IF NOT EXISTS albums (
                 album_id INTEGER,
                 album_name TEXT,
                 PRIMARY KEY(album_id AUTOINCREMENT)
@@ -656,7 +657,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
                 return Err(error);
             }
         }
-        match connection.execute("CREATE INDEX index_albums_name ON albums (album_name)", ()) {
+        match connection.execute("CREATE INDEX IF NOT EXISTS index_albums_name ON albums (album_name)", ()) {
             Ok(_ret) => {}
             Err(error) => {
                 log::error!("Failed to create index on albums: {}", error);
@@ -665,7 +666,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
         }
         match connection.execute(
             "
-        CREATE TABLE album_audio_map (
+        CREATE TABLE IF NOT EXISTS album_audio_map (
             entry_id INTEGER,
             audio_id INTEGER,
             album_id INTEGER,
@@ -680,7 +681,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
             }
         }
         match connection.execute(
-            "CREATE INDEX index_album_audio_audio_id ON album_audio_map (audio_id)",
+            "CREATE INDEX IF NOT EXISTS index_album_audio_audio_id ON album_audio_map (audio_id)",
             (),
         ) {
             Ok(_ret) => {}
@@ -692,7 +693,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
 
         match connection.execute(
             "
-            CREATE TABLE artists (
+            CREATE TABLE IF NOT EXISTS artists (
                 artist_id INTEGER,
                 artist_name TEXT,
                 PRIMARY KEY(artist_id AUTOINCREMENT)
@@ -706,7 +707,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
             }
         }
         match connection.execute(
-            "CREATE INDEX index_artists_name_id ON artists (artist_name)",
+            "CREATE INDEX IF NOT EXISTS index_artists_name_id ON artists (artist_name)",
             (),
         ) {
             Ok(_ret) => {}
@@ -717,7 +718,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
         }
         match connection.execute(
             "
-        CREATE TABLE artist_audio_map (
+        CREATE TABLE IF NOT EXISTS artist_audio_map (
             entry_id INTEGER,
             audio_id INTEGER,
             artist_id INTEGER,
@@ -732,7 +733,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
             }
         }
         match connection.execute(
-            "CREATE INDEX index_artist_audio_map_audio_id ON artist_audio_map (audio_id)",
+            "CREATE INDEX IF NOT EXISTS index_artist_audio_map_audio_id ON artist_audio_map (audio_id)",
             (),
         ) {
             Ok(_ret) => {}
@@ -744,7 +745,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
 
         match connection.execute(
             "
-        CREATE TABLE albumartist_audio_map (
+        CREATE TABLE IF NOT EXISTS albumartist_audio_map (
             entry_id INTEGER,
             audio_id INTEGER,
             albumartist_id INTEGER,
@@ -759,7 +760,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
             }
         }
         match connection.execute(
-            "CREATE INDEX index_albumartist_audio_map_audio_id ON artist_audio_map (audio_id)",
+            "CREATE INDEX IF NOT EXISTS index_albumartist_audio_map_audio_id ON artist_audio_map (audio_id)",
             (),
         ) {
             Ok(_ret) => {}
@@ -770,7 +771,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
         }
         match connection.execute(
             "
-            CREATE TABLE indexes (
+            CREATE TABLE IF NOT EXISTS indexes (
                 index_id INTEGER,
                 audio_id INTEGER,
                 title TEXT,
@@ -787,7 +788,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
             }
         }
         match connection.execute(
-            "CREATE INDEX index_indexes_audio_id ON indexes (audio_id)",
+            "CREATE INDEX IF NOT EXISTS index_indexes_audio_id ON indexes (audio_id)",
             (),
         ) {
             Ok(_ret) => {}
@@ -798,7 +799,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
         }
         match connection.execute(
             "
-            CREATE TABLE lyrics (
+            CREATE TABLE IF NOT EXISTS lyrics (
                 lyrics_id INTEGER,
                 audio_id INTEGER,
                 lyricsfile TEXT,
@@ -813,7 +814,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
             }
         }
         match connection.execute(
-            "CREATE INDEX index_lyrics_audio_id ON lyrics (audio_id)",
+            "CREATE INDEX IF NOT EXISTS index_lyrics_audio_id ON lyrics (audio_id)",
             (),
         ) {
             Ok(_ret) => {}
@@ -825,7 +826,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
 
         match connection.execute(
             "
-            CREATE TABLE image_metadata (
+            CREATE TABLE IF NOT EXISTS image_metadata (
                 image_id INTEGER PRIMARY KEY,
                 name     TEXT NOT NULL,
                 path     TEXT NOT NULL,
@@ -853,7 +854,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
             }
         }
         match connection.execute(
-            "CREATE INDEX index_image_photographer ON image_metadata (Photographer)",
+            "CREATE INDEX IF NOT EXISTS index_image_photographer ON image_metadata (Photographer)",
             (),
         ) {
             Ok(_ret) => {}
@@ -862,7 +863,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
                 return Err(error);
             }
         }
-        match connection.execute("CREATE INDEX index_image_name ON image_metadata (name)", ()) {
+        match connection.execute("CREATE INDEX IF NOT EXISTS index_image_name ON image_metadata (name)", ()) {
             Ok(_ret) => {}
             Err(error) => {
                 log::error!("Failed to create index on image_metadata: {}", error);
@@ -872,7 +873,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
 
         match connection.execute(
             "
-            CREATE TABLE tags (
+            CREATE TABLE IF NOT EXISTS tags (
                 tag_id INTEGER,
                 tag TEXT,
                 PRIMARY KEY(tag_id AUTOINCREMENT)
@@ -885,7 +886,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
                 return Err(error);
             }
         }
-        match connection.execute("CREATE INDEX index_tags_tag ON tags (tag)", ()) {
+        match connection.execute("CREATE INDEX IF NOT EXISTS index_tags_tag ON tags (tag)", ()) {
             Ok(_ret) => {}
             Err(error) => {
                 log::error!("Failed to create index on tags: {}", error);
@@ -895,7 +896,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
 
         match connection.execute(
             "
-            CREATE TABLE tags_media_map (
+            CREATE TABLE IF NOT EXISTS tags_media_map (
                 element_id INTEGER,
                 media_id INTEGER,
                 tagmap_id INTEGER,
@@ -911,7 +912,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
         }
         /*
                 match connection.execute(
-                    "CREATE INDEX index_tagsmediamap_media_id ON tags_media_map (media_id)", (),
+                    "CREATE INDEX IF NOT EXISTS index_tagsmediamap_media_id ON tags_media_map (media_id)", (),
                 ) {
                     Ok(_ret) => {},
                     Err(error) => {
@@ -920,7 +921,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
                     }
                 }
                 match connection.execute(
-                    "CREATE INDEX index_tagsmediamap_tag_id ON tags_media_map (tagmap_id)", (),
+                    "CREATE INDEX IF NOT EXISTS index_tagsmediamap_tag_id ON tags_media_map (tagmap_id)", (),
                 ) {
                     Ok(_ret) => {},
                     Err(error) => {
@@ -931,7 +932,7 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
         */
         match connection.execute(
             "
-            CREATE TABLE searches (
+            CREATE TABLE IF NOT EXISTS searches (
                 search_id INTEGER,
                 from_string  TEXT,
                 from_value DOUBLE,
@@ -974,9 +975,6 @@ pub fn connect() -> Result<rusqlite::Connection, rusqlite::Error> {
                 return Err(error);
             }
         }
-    } else {
-        connection = Connection::open(sqlite_file)?;
-    }
     Ok(connection)
 }
 
@@ -1017,7 +1015,7 @@ mod tests {
     fn test_db() -> std::sync::Arc<std::sync::Mutex<rusqlite::Connection>> {
         let conn = rusqlite::Connection::open_in_memory().expect("open in-memory db");
         conn.execute(
-            "CREATE TABLE video_metadata (
+            "CREATE TABLE IF NOT EXISTS video_metadata (
                 video_id INTEGER PRIMARY KEY,
                 name TEXT, title TEXT, released INTEGER, poster TEXT, thumb TEXT,
                 duration INTEGER, width INTEGER, height INTEGER, framerate REAL,
@@ -1027,7 +1025,7 @@ mod tests {
         )
         .expect("create video_metadata");
         conn.execute(
-            "CREATE TABLE file_metadata (
+            "CREATE TABLE IF NOT EXISTS file_metadata (
                 metadata_id INTEGER PRIMARY KEY,
                 filepath TEXT, creation_time INTEGER, modification_time INTEGER,
                 file_type INTEGER
@@ -1049,7 +1047,7 @@ mod tests {
         )
         .expect("insert file");
         conn.execute(
-            "CREATE TABLE image_metadata (
+            "CREATE TABLE IF NOT EXISTS image_metadata (
                 image_id INTEGER PRIMARY KEY,
                 name TEXT, path TEXT, created INTEGER, resized TEXT, thumb TEXT,
                 width INTEGER, height INTEGER, Photographer TEXT, LenseModel TEXT,
@@ -1060,7 +1058,7 @@ mod tests {
         )
         .expect("create image_metadata");
         conn.execute(
-            "CREATE TABLE tags (
+            "CREATE TABLE IF NOT EXISTS tags (
                 tag_id INTEGER PRIMARY KEY,
                 tag TEXT
             )",
@@ -1068,7 +1066,7 @@ mod tests {
         )
         .expect("create tags");
         conn.execute(
-            "CREATE TABLE tags_media_map (
+            "CREATE TABLE IF NOT EXISTS tags_media_map (
                 tagmap_id INTEGER PRIMARY KEY,
                 media_id INTEGER,
                 tag_id INTEGER
@@ -1249,5 +1247,314 @@ mod tests {
 
         let (images, _files) = search_image(conn, &search);
         assert_eq!(images.len(), 0, "GPS range must exclude the sample image");
+    }
+
+    /// Regression: search results must carry the *full* metadata (poster,
+    /// thumb, directors, actors) — not just the searched columns — matching
+    /// folder browsing.
+    #[test]
+    fn search_items_video_carries_full_metadata() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let file = dir.path().join("odyssey.mkv");
+        std::fs::write(&file, b"fake").expect("write file");
+        let poster = dir.path().join("odyssey.poster.jpg");
+        std::fs::write(&poster, b"fake").expect("write poster");
+        let thumb = dir.path().join("odyssey.thumb.jpg");
+        std::fs::write(&thumb, b"fake").expect("write thumb");
+
+        let conn = rusqlite::Connection::open_in_memory().expect("open db");
+        conn.execute(
+            "CREATE TABLE file_metadata (
+                filepath TEXT, creation_time INTEGER, modification_time INTEGER,
+                file_type INTEGER,
+                metadata_id INTEGER PRIMARY KEY
+            )",
+            [],
+        )
+        .expect("create file_metadata");
+        conn.execute(
+            "CREATE TABLE video_metadata (
+                video_id INTEGER PRIMARY KEY,
+                name TEXT, title TEXT, released INTEGER, poster TEXT, thumb TEXT,
+                duration INTEGER, width INTEGER, height INTEGER, framerate REAL,
+                description TEXT
+            )",
+            [],
+        )
+        .expect("create video_metadata");
+        conn.execute(
+            "CREATE TABLE people (
+                person_id INTEGER PRIMARY KEY AUTOINCREMENT, person_name TEXT
+            )",
+            [],
+        )
+        .expect("create people");
+        conn.execute(
+            "CREATE TABLE directors (
+                entry_id INTEGER, director_id INTEGER, video_id INTEGER
+            )",
+            [],
+        )
+        .expect("create directors");
+        conn.execute(
+            "CREATE TABLE actors (
+                entry_id INTEGER, actor_id INTEGER, video_id INTEGER
+            )",
+            [],
+        )
+        .expect("create actors");
+        conn.execute(
+            "CREATE TABLE subtitles (
+                subtitle_id INTEGER, video_id INTEGER, subpath TEXT
+            )",
+            [],
+        )
+        .expect("create subtitles");
+        conn.execute(
+            "CREATE TABLE audiolangs (
+                audiolang_id INTEGER, video_id INTEGER, audiolang TEXT
+            )",
+            [],
+        )
+        .expect("create audiolangs");
+        conn.execute(
+            "CREATE TABLE sublangs (
+                sublang_id INTEGER, video_id INTEGER, sublang TEXT
+            )",
+            [],
+        )
+        .expect("create sublangs");
+        conn.execute(
+            "CREATE TABLE chapters (
+                chapter_id INTEGER, video_id INTEGER, title TEXT, start INTEGER, end INTEGER
+            )",
+            [],
+        )
+        .expect("create chapters");
+        conn.execute(
+            "CREATE TABLE tags (tag_id INTEGER PRIMARY KEY, tag TEXT)",
+            [],
+        )
+        .expect("create tags");
+        conn.execute(
+            "CREATE TABLE tags_media_map (
+                tagmap_id INTEGER, media_id INTEGER, tag_id INTEGER
+            )",
+            [],
+        )
+        .expect("create tags_media_map");
+
+        let path = file.to_string_lossy().to_string();
+        conn.execute(
+            "INSERT INTO file_metadata (metadata_id, filepath, file_type) VALUES (1, ?1, 2)",
+            [path],
+        )
+        .expect("insert file");
+        let released = chrono::NaiveDate::from_ymd_opt(1968, 10, 2)
+            .expect("valid date")
+            .and_hms_opt(0, 0, 0)
+            .expect("valid time")
+            .and_utc()
+            .timestamp();
+        conn.execute(
+            "INSERT INTO video_metadata
+             (video_id, name, title, released, poster, thumb, duration, width, height, framerate)
+             VALUES (1, 'odyssey.mkv', 'A Space Odyssey', ?1, ?2, ?3, 2626, 2048, 1080, 24.0)",
+            rusqlite::params![
+                released,
+                poster.to_string_lossy().to_string(),
+                thumb.to_string_lossy().to_string()
+            ],
+        )
+        .expect("insert video");
+        conn.execute(
+            "INSERT INTO people (person_name) VALUES ('Kubrick')",
+            [],
+        )
+        .expect("insert director person");
+        conn.execute(
+            "INSERT INTO people (person_name) VALUES ('Mason')",
+            [],
+        )
+        .expect("insert actor person");
+        conn.execute(
+            "INSERT INTO directors (entry_id, director_id, video_id) VALUES (1, 1, 1)",
+            [],
+        )
+        .expect("insert director");
+        conn.execute(
+            "INSERT INTO actors (entry_id, actor_id, video_id) VALUES (1, 2, 1)",
+            [],
+        )
+        .expect("insert actor");
+
+        let conn = std::sync::Arc::new(std::sync::Mutex::new(conn));
+        let mut search = SearchData::default();
+        search.video = true;
+        search.title = true;
+        search.from_string = "odyssey".to_string();
+
+        let items = search_items(conn, &search);
+        assert_eq!(items.len(), 1, "title search must return the video");
+        let video = items[0]
+            .video_opt
+            .as_ref()
+            .expect("item must carry video metadata");
+        assert_eq!(video.title, "A Space Odyssey");
+        assert!(!video.poster.is_empty(), "poster must be loaded");
+        assert!(!video.thumb.is_empty(), "thumb must be loaded");
+        assert_eq!(
+            video.director,
+            vec!["Kubrick".to_string()],
+            "directors must be loaded"
+        );
+        assert_eq!(
+            video.actors,
+            vec!["Mason".to_string()],
+            "actors must be loaded"
+        );
+        assert!(
+            items[0].thumbnail_opt.is_some(),
+            "item must have a thumbnail"
+        );
+    }
+
+    /// Regression: audio search results must carry the *full* metadata
+    /// (poster, thumb, genre, composer, artist, album) — and an *unknown*
+    /// release date (stored as 0, the app's "no date" convention) must not
+    /// prevent the remaining columns from loading.
+    #[test]
+    fn search_items_audio_carries_full_metadata_with_unknown_date() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let file = dir.path().join("moonlight.flac");
+        std::fs::write(&file, b"fake").expect("write file");
+        let poster = dir.path().join("moonlight.cover.jpg");
+        std::fs::write(&poster, b"fake").expect("write poster");
+        let thumb = dir.path().join("moonlight.thumb.jpg");
+        std::fs::write(&thumb, b"fake").expect("write thumb");
+
+        let conn = rusqlite::Connection::open_in_memory().expect("open db");
+        conn.execute(
+            "CREATE TABLE file_metadata (
+                filepath TEXT, creation_time INTEGER, modification_time INTEGER,
+                file_type INTEGER,
+                metadata_id INTEGER PRIMARY KEY
+            )",
+            [],
+        )
+        .expect("create file_metadata");
+        conn.execute(
+            "CREATE TABLE audio_metadata (
+                audio_id INTEGER PRIMARY KEY,
+                name TEXT, title TEXT, released INTEGER, poster TEXT, thumb TEXT,
+                genre TEXT, composer TEXT, track_id INTEGER, duration INTEGER,
+                bitrate REAL
+            )",
+            [],
+        )
+        .expect("create audio_metadata");
+        conn.execute(
+            "CREATE TABLE artists (
+                artist_id INTEGER PRIMARY KEY, artist_name TEXT
+            )",
+            [],
+        )
+        .expect("create artists");
+        conn.execute(
+            "CREATE TABLE artist_audio_map (
+                audio_id INTEGER, artist_id INTEGER
+            )",
+            [],
+        )
+        .expect("create artist_audio_map");
+        conn.execute(
+            "CREATE TABLE albums (
+                album_id INTEGER PRIMARY KEY, album_name TEXT
+            )",
+            [],
+        )
+        .expect("create albums");
+        conn.execute(
+            "CREATE TABLE album_audio_map (
+                audio_id INTEGER, album_id INTEGER
+            )",
+            [],
+        )
+        .expect("create album_audio_map");
+        conn.execute(
+            "CREATE TABLE albumartist_audio_map (
+                albumartist_id INTEGER, audio_id INTEGER
+            )",
+            [],
+        )
+        .expect("create albumartist_audio_map");
+        conn.execute(
+            "CREATE TABLE indexes (
+                audio_id INTEGER, title TEXT, start REAL, end REAL
+            )",
+            [],
+        )
+        .expect("create indexes");
+
+        let path = file.to_string_lossy().to_string();
+        conn.execute(
+            "INSERT INTO file_metadata (metadata_id, filepath, file_type) VALUES (1, ?1, 3)",
+            [path],
+        )
+        .expect("insert file");
+        // `released = 0`: the app's "unknown release date" convention — the
+        // loader must treat it as "no date" and still load everything else.
+        conn.execute(
+            "INSERT INTO audio_metadata
+             (audio_id, name, title, released, poster, thumb, genre, composer, track_id, duration)
+             VALUES (1, 'moonlight.flac', 'Moonlight Serenade', 0, ?1, ?2, 'Jazz', 'Ginther', 3, 287)",
+            rusqlite::params![
+                poster.to_string_lossy().to_string(),
+                thumb.to_string_lossy().to_string()
+            ],
+        )
+        .expect("insert audio");
+        conn.execute("INSERT INTO artists (artist_name) VALUES ('Ginther')", [])
+            .expect("insert artist");
+        conn.execute(
+            "INSERT INTO artist_audio_map (audio_id, artist_id) VALUES (1, 1)",
+            [],
+        )
+        .expect("insert artist map");
+        conn.execute(
+            "INSERT INTO albums (album_name) VALUES ('Night Session')",
+            [],
+        )
+        .expect("insert album");
+        conn.execute(
+            "INSERT INTO album_audio_map (audio_id, album_id) VALUES (1, 1)",
+            [],
+        )
+        .expect("insert album map");
+
+        let conn = std::sync::Arc::new(std::sync::Mutex::new(conn));
+        let mut search = SearchData::default();
+        search.audio = true;
+        search.title = true;
+        search.from_string = "moonlight".to_string();
+
+        let items = search_items(conn, &search);
+        assert_eq!(items.len(), 1, "title search must return the audio");
+        let audio = items[0]
+            .audio_opt
+            .as_ref()
+            .expect("item must carry audio metadata");
+        assert_eq!(audio.title, "Moonlight Serenade");
+        assert!(!audio.poster.is_empty(), "poster must be loaded");
+        assert!(!audio.thumb.is_empty(), "thumb must be loaded");
+        assert_eq!(audio.genre, "Jazz", "genre must be loaded");
+        assert_eq!(audio.composer, "Ginther", "composer must be loaded");
+        assert_eq!(audio.track_id, 3, "track_id must be loaded");
+        assert_eq!(
+            audio.artist,
+            vec!["Ginther".to_string()],
+            "artists must be loaded"
+        );
+        assert_eq!(audio.album, "Night Session", "album must be loaded");
     }
 }

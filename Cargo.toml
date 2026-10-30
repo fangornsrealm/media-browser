@@ -26,6 +26,7 @@ vergen = { version = "8", features = ["git", "gitcl"] }
 [dependencies]
 audiotags = "0.5"
 bytes = "1.9.0"
+bytemuck = "1.0"
 chrono = { version = "0.4", features = ["unstable-locales"] }
 dirs = "6.0.0"
 env_logger = "0.11"
@@ -35,17 +36,12 @@ fs_extra = { git = "https://github.com/pop-os/fs_extra.git", rev = "7e7222e" }
 gio = { version = "0.20.6", optional = true }
 glib = { version = "0.20.6", optional = true }
 glob = "0.3"
-gstreamer = "0.23"
-gstreamer-app = "0.23" # appsink
-gstreamer-base = "0.23" # basesrc
-gstreamer-pbutils = "0.23"
-gstreamer-tag = "0.23"
-gst-plugin-matroska = "0.0.0"
 html-escape = "0.2.13"
 icu_collator = "1.5"
 icu_provider = { version = "1.5", features = ["sync"] }
 ignore = "0.4"
 image = "0.25.5"
+serde_json = "1"
 imagesize = "0.13.0"
 lazy_static = "1"
 libc = "0.2"
@@ -217,18 +213,7 @@ assets = [
 depends = [
     "libc6",
     "libxkbcommon0",
-    "gstreamer1.0-plugins-base",
-    "gstreamer1.0-plugins-good",
-    "gstreamer1.0-plugins-bad",
-    "gstreamer1.0-plugins-ugly",
-    "gstreamer1.0-libav",
-    "gstreamer1.0-tools",
-    "gstreamer1.0-x",
-    "gstreamer1.0-alsa",
-    "gstreamer1.0-gl",
-    "gstreamer1.0-gtk3",
-    "gstreamer1.0-qt5",
-    "gstreamer1.0-pulseaudio",
+    "libmpv2",
 ]
 
 [package.metadata.generate-rpm]
@@ -242,13 +227,4 @@ assets = [
 [package.metadata.generate-rpm.requires]
 glibc = "*"
 libxkbcommon = "*"
-gstreamer1-devel = "*"
-gstreamer1-plugins-base-tools = "*"
-gstreamer1-doc = "*"
-gstreamer1-plugins-base-devel = "*"
-gstreamer1-plugins-good = "*"
-gstreamer1-plugins-good-extras = "*"
-gstreamer1-plugins-ugly = "*"
-gstreamer1-plugins-bad-free = "*"
-gstreamer1-plugins-bad-free-devel = "*"
-gstreamer1-plugins-bad-free-extras = "*"
+mpv-libs = "*"

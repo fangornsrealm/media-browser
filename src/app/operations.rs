@@ -63,7 +63,7 @@ impl App {
                                         Message::UndoTrash(tid, paths.clone())
                                     }),
                             )
-                            .map(cosmic::app::Message::App),
+                            .map(cosmic::action::app),
                     );
                 }
             }

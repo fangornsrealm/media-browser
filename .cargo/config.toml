@@ -1,0 +1,5 @@
+[env]
+# libmpv parses/formats numbers with the C library locale; force C so
+# non-C locales (de_DE: comma decimals) cannot corrupt mpv command args or
+# generated JSON (track-list). See src/mpv/player.rs.
+LC_ALL = "C"

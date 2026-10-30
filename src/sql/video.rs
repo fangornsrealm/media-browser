@@ -413,84 +413,35 @@ pub fn video_by_id(
                     loop {
                         match rows.next() {
                             Ok(Some(row)) => {
-                                match row.get(0) {
-                                    Ok(val) => v.name = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read id for video: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(0) {
+                                    v.name = val;
                                 }
-                                match row.get(1) {
-                                    Ok(val) => v.title = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read video_id for video: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(1) {
+                                    v.title = val;
                                 }
-                                match row.get(2) {
-                                    Ok(val) => v.date = val,
-                                    Err(error) => {
-                                        log::error!(
-                                            "Failed to read screenshot_id for video: {}",
-                                            error
-                                        );
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(2) {
+                                    v.date = val;
                                 }
-                                match row.get(3) {
-                                    Ok(val) => v.poster = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read poster for video: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(3) {
+                                    v.poster = val;
                                 }
-                                match row.get(4) {
-                                    Ok(val) => v.duration = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read duration for video: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(4) {
+                                    v.duration = val;
                                 }
-                                match row.get(5) {
-                                    Ok(val) => v.width = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read width for video: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(5) {
+                                    v.width = val;
                                 }
-                                match row.get(6) {
-                                    Ok(val) => v.height = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read height for video: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(6) {
+                                    v.height = val;
                                 }
-                                match row.get(7) {
-                                    Ok(val) => v.framerate = val,
-                                    Err(error) => {
-                                        log::error!(
-                                            "Failed to read framerate for video: {}",
-                                            error
-                                        );
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(7) {
+                                    v.framerate = val;
                                 }
-                                match row.get(8) {
-                                    Ok(val) => v.description = val,
-                                    Err(error) => {
-                                        log::error!(
-                                            "Failed to read description for video: {}",
-                                            error
-                                        );
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(8) {
+                                    v.description = val;
                                 }
-                                match row.get(9) {
-                                    Ok(val) => v.thumb = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read thumb for video: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(9) {
+                                    v.thumb = val;
                                 }
                             }
                             Ok(None) => {
@@ -698,7 +649,7 @@ pub fn video_by_id(
             log::error!("could not prepare SQL statement: {}", err);
         }
     }
-    let query = "SELECT tag_id, tag FROM tags
+    let query = "SELECT tags.tag_id, tags.tag FROM tags
                         INNER JOIN tags_media_map
                         ON tags_media_map.tagmap_id = tags.tag_id
                         WHERE tags_media_map.media_id = ?1";
@@ -778,84 +729,35 @@ pub fn video(
                     loop {
                         match rows.next() {
                             Ok(Some(row)) => {
-                                match row.get(0) {
-                                    Ok(val) => v.name = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read id for video: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(0) {
+                                    v.name = val;
                                 }
-                                match row.get(1) {
-                                    Ok(val) => v.title = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read video_id for video: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(1) {
+                                    v.title = val;
                                 }
-                                match row.get(2) {
-                                    Ok(val) => v.date = val,
-                                    Err(error) => {
-                                        log::error!(
-                                            "Failed to read screenshot_id for video: {}",
-                                            error
-                                        );
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(2) {
+                                    v.date = val;
                                 }
-                                match row.get(3) {
-                                    Ok(val) => v.poster = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read poster for video: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(3) {
+                                    v.poster = val;
                                 }
-                                match row.get(4) {
-                                    Ok(val) => v.duration = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read duration for video: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(4) {
+                                    v.duration = val;
                                 }
-                                match row.get(5) {
-                                    Ok(val) => v.width = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read width for video: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(5) {
+                                    v.width = val;
                                 }
-                                match row.get(6) {
-                                    Ok(val) => v.height = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read height for video: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(6) {
+                                    v.height = val;
                                 }
-                                match row.get(7) {
-                                    Ok(val) => v.framerate = val,
-                                    Err(error) => {
-                                        log::error!(
-                                            "Failed to read framerate for video: {}",
-                                            error
-                                        );
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(7) {
+                                    v.framerate = val;
                                 }
-                                match row.get(8) {
-                                    Ok(val) => v.description = val,
-                                    Err(error) => {
-                                        log::error!(
-                                            "Failed to read description for video: {}",
-                                            error
-                                        );
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(8) {
+                                    v.description = val;
                                 }
-                                match row.get(9) {
-                                    Ok(val) => v.thumb = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read thumb for video: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(9) {
+                                    v.thumb = val;
                                 }
                             }
                             Ok(None) => {
@@ -1130,7 +1032,7 @@ pub fn video(
             log::error!("could not prepare SQL statement: {}", err);
         }
     }
-    let query = "SELECT tag_id, tag FROM tags
+    let query = "SELECT tags.tag_id, tags.tag FROM tags
                         INNER JOIN tags_media_map
                         ON tags_media_map.tagmap_id = tags.tag_id
                         WHERE tags_media_map.media_id = ?1";

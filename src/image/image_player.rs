@@ -114,12 +114,14 @@ where
     }
 
     fn layout(
-        &self,
+        &mut self,
         _tree: &mut Tree,
         renderer: &Renderer,
         limits: &layout::Limits,
     ) -> layout::Node {
-        let image_size = renderer.measure_image(&self.handle);
+        let image_size = renderer
+            .measure_image(&self.handle)
+            .unwrap_or(cosmic::iced::Size::new(0, 0));
         let image_size_f32 = Size::new(image_size.width as f32, image_size.height as f32);
         let raw_size = limits.resolve(self.width, self.height, image_size_f32);
         let mut size = raw_size.clone();
@@ -150,23 +152,24 @@ where
         layout::Node::new(size)
     }
 
-    fn on_event(
+    fn update(
         &mut self,
         tree: &mut Tree,
-        event: Event,
+        event: &Event,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         renderer: &Renderer,
         _clipboard: &mut dyn Clipboard,
         _shell: &mut Shell<'_, Message>,
         _viewport: &Rectangle,
-    ) -> event::Status {
+    ) {
         let bounds = layout.bounds();
+        let event = event.clone();
 
         match event {
             Event::Mouse(mouse::Event::WheelScrolled { delta }) => {
                 let Some(cursor_position) = cursor.position_over(bounds) else {
-                    return event::Status::Ignored;
+                    return;
                 };
 
                 match delta {
@@ -209,30 +212,22 @@ where
                         }
                     }
                 }
-
-                event::Status::Captured
             }
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
                 let Some(cursor_position) = cursor.position() else {
-                    return event::Status::Ignored;
+                    return;
                 };
 
                 let state = tree.state.downcast_mut::<State>();
 
                 state.cursor_grabbed_at = Some(cursor_position);
                 state.starting_offset = state.current_offset;
-
-                event::Status::Captured
             }
             Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
                 let state = tree.state.downcast_mut::<State>();
 
                 if state.cursor_grabbed_at.is_some() {
                     state.cursor_grabbed_at = None;
-
-                    event::Status::Captured
-                } else {
-                    event::Status::Ignored
                 }
             }
             Event::Mouse(mouse::Event::CursorMoved { position }) => {
@@ -260,13 +255,9 @@ where
                     };
 
                     state.current_offset = Vector::new(x, y);
-
-                    event::Status::Captured
-                } else {
-                    event::Status::Ignored
                 }
             }
-            _ => event::Status::Ignored,
+            _ => {}
         }
     }
 
@@ -317,18 +308,27 @@ where
 
         renderer.with_layer(bounds, |renderer| {
             renderer.with_translation(translation, |renderer| {
-                image::Renderer::draw_image(
-                    renderer,
-                    self.handle.clone(),
-                    self.filter_method,
+                let image = cosmic::iced::core::image::Image {
+                    handle: self.handle.clone(),
+                    filter_method: self.filter_method,
+                    rotation: cosmic::iced::Radians::from(0.0),
+                    border_radius: cosmic::iced::core::border::Radius {
+                        top_left: 0.0,
+                        top_right: 0.0,
+                        bottom_right: 0.0,
+                        bottom_left: 0.0,
+                    },
+                    opacity: 1.0,
+                    snap: false,
+                };
+                renderer.draw_image(
+                    image,
                     Rectangle {
                         x: bounds.x,
                         y: bounds.y,
                         ..Rectangle::with_size(image_size)
                     },
-                    cosmic::iced::Radians::from(0.0),
-                    1.0,
-                    [0.0; 4],
+                    bounds,
                 );
             });
         });
@@ -404,7 +404,9 @@ pub fn image_size<Renderer>(
 where
     Renderer: image::Renderer,
 {
-    let Size { width, height } = renderer.measure_image(handle);
+    let Some(Size { width, height }) = renderer.measure_image(handle) else {
+        return Size::ZERO;
+    };
 
     let (width, height) = {
         let dimensions = (width as f32, height as f32);

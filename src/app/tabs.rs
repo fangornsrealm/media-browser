@@ -26,7 +26,8 @@
 //! it. `update`, `view`, and `APP_ID` come from the `cosmic::Application`
 //! trait, which is imported for that reason.
 
-use cosmic::app::{message, Task};
+use cosmic::action as message;
+use cosmic::app::Task;
 use cosmic::iced::window;
 use cosmic::widget::segmented_button::Entity;
 use cosmic::{Application, ApplicationExt};

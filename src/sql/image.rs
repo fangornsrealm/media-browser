@@ -185,131 +185,50 @@ pub fn image_by_id(
                     loop {
                         match rows.next() {
                             Ok(Some(row)) => {
-                                match row.get(0) {
-                                    Ok(val) => v.name = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read name for image: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(0) {
+                                    v.name = val;
                                 }
-                                match row.get(1) {
-                                    Ok(val) => v.path = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read title for image: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(1) {
+                                    v.path = val;
                                 }
-                                match row.get(2) {
-                                    Ok(val) => v.date = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read date for image: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(2) {
+                                    v.date = val;
                                 }
-                                match row.get(3) {
-                                    Ok(val) => v.resized = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read resized for image: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(3) {
+                                    v.resized = val;
                                 }
-                                match row.get(4) {
-                                    Ok(val) => v.thumb = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read thumb for image: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(4) {
+                                    v.thumb = val;
                                 }
-                                match row.get(5) {
-                                    Ok(val) => v.width = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read width for image: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(5) {
+                                    v.width = val;
                                 }
-                                match row.get(6) {
-                                    Ok(val) => v.height = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read height for image: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(6) {
+                                    v.height = val;
                                 }
-                                match row.get(7) {
-                                    Ok(val) => v.photographer = val,
-                                    Err(error) => {
-                                        log::error!(
-                                            "Failed to read photographer for image: {}",
-                                            error
-                                        );
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(7) {
+                                    v.photographer = val;
                                 }
-                                match row.get(8) {
-                                    Ok(val) => v.lense_model = val,
-                                    Err(error) => {
-                                        log::error!(
-                                            "Failed to read lense_model for image: {}",
-                                            error
-                                        );
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(8) {
+                                    v.lense_model = val;
                                 }
-                                match row.get(9) {
-                                    Ok(val) => v.focal_length = val,
-                                    Err(error) => {
-                                        log::error!(
-                                            "Failed to read focal_length for image: {}",
-                                            error
-                                        );
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(9) {
+                                    v.focal_length = val;
                                 }
-                                match row.get(10) {
-                                    Ok(val) => v.exposure_time = val,
-                                    Err(error) => {
-                                        log::error!(
-                                            "Failed to read exposure_time for image: {}",
-                                            error
-                                        );
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(10) {
+                                    v.exposure_time = val;
                                 }
-                                match row.get(11) {
-                                    Ok(val) => v.fnumber = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read fnumber for image: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(11) {
+                                    v.fnumber = val;
                                 }
-                                match row.get(12) {
-                                    Ok(val) => v.gps_latitude = val,
-                                    Err(error) => {
-                                        log::error!(
-                                            "Failed to read gps_latitude for image: {}",
-                                            error
-                                        );
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(12) {
+                                    v.gps_latitude = val;
                                 }
-                                match row.get(13) {
-                                    Ok(val) => v.gps_longitude = val,
-                                    Err(error) => {
-                                        log::error!(
-                                            "Failed to read gps_longitude for image: {}",
-                                            error
-                                        );
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(13) {
+                                    v.gps_longitude = val;
                                 }
-                                match row.get(14) {
-                                    Ok(val) => v.gps_altitude = val,
-                                    Err(error) => {
-                                        log::error!(
-                                            "Failed to read gps_altitude for image: {}",
-                                            error
-                                        );
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(14) {
+                                    v.gps_altitude = val;
                                 }
                             }
                             Ok(None) => {
@@ -335,7 +254,7 @@ pub fn image_by_id(
             log::error!("could not prepare SQL statement: {}", err);
         }
     }
-    let query = "SELECT tag_id, tag FROM tags
+    let query = "SELECT tags.tag_id, tags.tag FROM tags
                         INNER JOIN tags_media_map
                         ON tags_media_map.tagmap_id = tags.tag_id
                         WHERE tags_media_map.media_id = ?1";
@@ -417,141 +336,53 @@ pub fn image(
                     loop {
                         match rows.next() {
                             Ok(Some(row)) => {
-                                match row.get(0) {
-                                    Ok(val) => v.name = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read name for image: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(0) {
+                                    v.name = val;
                                 }
-                                match row.get(1) {
-                                    Ok(val) => v.path = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read title for image: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(1) {
+                                    v.path = val;
                                 }
-                                match row.get(2) {
-                                    Ok(val) => v.date = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read date for image: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(2) {
+                                    v.date = val;
                                 }
-                                match row.get(3) {
-                                    Ok(val) => v.resized = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read resized for image: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(3) {
+                                    v.resized = val;
                                 }
-                                match row.get(4) {
-                                    Ok(val) => v.thumb = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read thumb for image: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(4) {
+                                    v.thumb = val;
                                 }
-                                match row.get(5) {
-                                    Ok(val) => v.width = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read width for image: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(5) {
+                                    v.width = val;
                                 }
-                                match row.get(6) {
-                                    Ok(val) => v.height = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read height for image: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(6) {
+                                    v.height = val;
                                 }
-                                match row.get(7) {
-                                    Ok(val) => v.photographer = val,
-                                    Err(error) => {
-                                        log::error!(
-                                            "Failed to read photographer for image: {}",
-                                            error
-                                        );
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(7) {
+                                    v.photographer = val;
                                 }
-                                match row.get(8) {
-                                    Ok(val) => v.lense_model = val,
-                                    Err(error) => {
-                                        log::error!(
-                                            "Failed to read lense_model for image: {}",
-                                            error
-                                        );
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(8) {
+                                    v.lense_model = val;
                                 }
-                                match row.get(9) {
-                                    Ok(val) => v.focal_length = val,
-                                    Err(error) => {
-                                        log::error!(
-                                            "Failed to read focal_length for image: {}",
-                                            error
-                                        );
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(9) {
+                                    v.focal_length = val;
                                 }
-                                match row.get(10) {
-                                    Ok(val) => v.exposure_time = val,
-                                    Err(error) => {
-                                        log::error!(
-                                            "Failed to read exposure_time for image: {}",
-                                            error
-                                        );
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(10) {
+                                    v.exposure_time = val;
                                 }
-                                match row.get(11) {
-                                    Ok(val) => v.fnumber = val,
-                                    Err(error) => {
-                                        log::error!("Failed to read fnumber for image: {}", error);
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(11) {
+                                    v.fnumber = val;
                                 }
-                                match row.get(12) {
-                                    Ok(val) => v.gps_latitude = val,
-                                    Err(error) => {
-                                        log::error!(
-                                            "Failed to read gps_latitude for image: {}",
-                                            error
-                                        );
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(12) {
+                                    v.gps_latitude = val;
                                 }
-                                match row.get(13) {
-                                    Ok(val) => v.gps_longitude = val,
-                                    Err(error) => {
-                                        log::error!(
-                                            "Failed to read gps_longitude for image: {}",
-                                            error
-                                        );
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(13) {
+                                    v.gps_longitude = val;
                                 }
-                                match row.get(14) {
-                                    Ok(val) => v.gps_altitude = val,
-                                    Err(error) => {
-                                        log::error!(
-                                            "Failed to read gps_altitude for image: {}",
-                                            error
-                                        );
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(14) {
+                                    v.gps_altitude = val;
                                 }
-                                match row.get(15) {
-                                    Ok(val) => v.id = val,
-                                    Err(error) => {
-                                        log::error!(
-                                            "Failed to read gps_altitude for image: {}",
-                                            error
-                                        );
-                                        continue;
-                                    }
+                                if let Ok(val) = row.get(15) {
+                                    v.id = val;
                                 }
                             }
                             Ok(None) => {
@@ -577,7 +408,7 @@ pub fn image(
             log::error!("could not prepare SQL statement: {}", err);
         }
     }
-    let query = "SELECT tag_id, tag FROM tags
+    let query = "SELECT tags.tag_id, tags.tag FROM tags
                         INNER JOIN tags_media_map
                         ON tags_media_map.tagmap_id = tags.tag_id
                         WHERE tags_media_map.media_id = ?1";

@@ -469,7 +469,7 @@ pub fn collection(
             log::error!("could not prepare SQL statement: {}", err);
         }
     }
-    let query = "SELECT tag_id, tag FROM tags
+    let query = "SELECT tags.tag_id, tags.tag FROM tags
                         INNER JOIN tags_media_map
                         ON tags_media_map.tagmap_id = tags.tag_id
                         WHERE tags_media_map.media_id = ?1";

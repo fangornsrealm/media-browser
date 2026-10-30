@@ -9,25 +9,25 @@
 use std::time::Instant;
 
 use cosmic::{
-    iced_core::{
+    Element, Renderer, Theme,
+    iced::core::{
+        Clipboard, Color, Layout, Length, Point, Rectangle, Shell, Size, Vector, Widget,
         border::Border,
         event::{self, Event},
         keyboard::{
             self,
-            key::{self, Key},
             Event::{KeyPressed, KeyReleased},
             Modifiers,
+            key::{self, Key},
         },
         layout,
         mouse::{self, click},
         overlay,
         renderer::{self, Quad, Renderer as _},
         touch,
-        widget::{tree, Operation, Tree},
-        Clipboard, Color, Layout, Length, Point, Rectangle, Shell, Size, Vector, Widget,
+        widget::{Operation, Tree, tree},
     },
     widget::Id,
-    Element, Renderer, Theme,
 };
 
 use crate::tab::DOUBLE_CLICK_DURATION;
@@ -315,60 +315,67 @@ where
     }
 
     fn layout(
-        &self,
+        &mut self,
         tree: &mut Tree,
         renderer: &Renderer,
         limits: &layout::Limits,
     ) -> layout::Node {
         self.content
-            .as_widget()
+            .as_widget_mut()
             .layout(&mut tree.children[0], renderer, limits)
     }
 
     fn operate(
-        &self,
+        &mut self,
         tree: &mut Tree,
         layout: Layout<'_>,
         renderer: &Renderer,
         operation: &mut dyn Operation,
     ) {
         self.content
-            .as_widget()
+            .as_widget_mut()
             .operate(&mut tree.children[0], layout, renderer, operation);
     }
 
-    fn on_event(
+    fn update(
         &mut self,
         tree: &mut Tree,
-        event: Event,
+        event: &Event,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         renderer: &Renderer,
         clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
-    ) -> event::Status {
-        if let event::Status::Captured = self.content.as_widget_mut().on_event(
+    ) {
+        self.content.as_widget_mut().update(
             &mut tree.children[0],
-            event.clone(),
+            event,
             layout,
             cursor,
             renderer,
             clipboard,
             shell,
             viewport,
-        ) {
-            return event::Status::Captured;
+        );
+
+        // In iced 0.14 events are dispatched through the whole subtree, so
+        // without explicit capture a parent area would handle the same
+        // click as a child area (e.g. a list row and the list background),
+        // undoing the child's action. Restore the old capture semantics:
+        // if a child captured the event, no ancestor handles it.
+        if shell.is_event_captured() {
+            return;
         }
 
         update(
             self,
-            &event,
+            event,
             layout,
             cursor,
             shell,
             tree.state.downcast_mut::<State>(),
-        )
+        );
     }
 
     fn mouse_interaction(
@@ -434,13 +441,18 @@ where
     fn overlay<'b>(
         &'b mut self,
         tree: &'b mut Tree,
-        layout: Layout<'_>,
+        layout: Layout<'b>,
         renderer: &Renderer,
+        viewport: &Rectangle,
         translation: Vector,
     ) -> Option<overlay::Element<'b, Message, Theme, Renderer>> {
-        self.content
-            .as_widget_mut()
-            .overlay(&mut tree.children[0], layout, renderer, translation)
+        self.content.as_widget_mut().overlay(
+            &mut tree.children[0],
+            layout,
+            renderer,
+            viewport,
+            translation,
+        )
     }
 
     fn drag_destinations(
@@ -547,6 +559,7 @@ fn update<Message: Clone>(
         }
 
         if widget.on_press.is_some() {
+            shell.capture_event();
             return event::Status::Captured;
         }
     }
@@ -587,6 +600,7 @@ fn update<Message: Clone>(
         if let Some(message) = widget.on_release.as_ref() {
             shell.publish(message(cursor.position_in(layout_bounds)));
 
+            shell.capture_event();
             return event::Status::Captured;
         }
     }
@@ -595,6 +609,7 @@ fn update<Message: Clone>(
         if let Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right)) = event {
             shell.publish(message(cursor.position_in(layout_bounds)));
 
+            shell.capture_event();
             return event::Status::Captured;
         }
     }
@@ -611,6 +626,7 @@ fn update<Message: Clone>(
         if let Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Right)) = event {
             shell.publish(message(cursor.position_in(layout_bounds)));
 
+            shell.capture_event();
             return event::Status::Captured;
         }
     }
@@ -619,6 +635,7 @@ fn update<Message: Clone>(
         if let Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Middle)) = event {
             shell.publish(message(cursor.position_in(layout_bounds)));
 
+            shell.capture_event();
             return event::Status::Captured;
         }
     }
@@ -627,6 +644,7 @@ fn update<Message: Clone>(
         if let Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Middle)) = event {
             shell.publish(message(cursor.position_in(layout_bounds)));
 
+            shell.capture_event();
             return event::Status::Captured;
         }
     }
@@ -635,6 +653,7 @@ fn update<Message: Clone>(
         if let Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Back)) = event {
             shell.publish(message(cursor.position_in(layout_bounds)));
 
+            shell.capture_event();
             return event::Status::Captured;
         }
     }
@@ -643,6 +662,7 @@ fn update<Message: Clone>(
         if let Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Back)) = event {
             shell.publish(message(cursor.position_in(layout_bounds)));
 
+            shell.capture_event();
             return event::Status::Captured;
         }
     }
@@ -651,6 +671,7 @@ fn update<Message: Clone>(
         if let Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Forward)) = event {
             shell.publish(message(cursor.position_in(layout_bounds)));
 
+            shell.capture_event();
             return event::Status::Captured;
         }
     }
@@ -659,6 +680,7 @@ fn update<Message: Clone>(
         if let Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Forward)) = event {
             shell.publish(message(cursor.position_in(layout_bounds)));
 
+            shell.capture_event();
             return event::Status::Captured;
         }
     }
@@ -667,7 +689,8 @@ fn update<Message: Clone>(
         if let Event::Mouse(mouse::Event::WheelScrolled { delta }) = event {
             if let Some(message) = on_scroll(delta.clone(), state.modifiers) {
                 shell.publish(message);
-                return event::Status::Captured;
+                shell.capture_event();
+            return event::Status::Captured;
             }
         }
     }
@@ -736,5 +759,302 @@ fn handle_key_event(key_event: &keyboard::Event, state: &mut State) {
     } = key_event
     {
         state.modifiers.remove(Modifiers::ALT);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A non-interactive leaf widget with a fixed size.
+    ///
+    /// Its `layout()` and `update()` never touch the renderer, so the
+    /// dispatch tests below only need a *type-valid* renderer.
+    struct Leaf {
+        size: Size,
+    }
+
+    impl<Message> Widget<Message, Theme, Renderer> for Leaf
+    where
+        Message: Clone,
+    {
+        fn size(&self) -> Size<Length> {
+            Size::new(
+                Length::Fixed(self.size.width),
+                Length::Fixed(self.size.height),
+            )
+        }
+
+        fn layout(
+            &mut self,
+            _tree: &mut Tree,
+            _renderer: &Renderer,
+            _limits: &layout::Limits,
+        ) -> layout::Node {
+            layout::Node::new(self.size)
+        }
+
+        fn draw(
+            &self,
+            _tree: &Tree,
+            _renderer: &mut Renderer,
+            _theme: &Theme,
+            _style: &renderer::Style,
+            _layout: Layout<'_>,
+            _cursor: mouse::Cursor,
+            _viewport: &Rectangle,
+        ) {
+        }
+    }
+
+    impl<Message> From<Leaf> for Element<'_, Message>
+    where
+        Message: Clone,
+    {
+        fn from(leaf: Leaf) -> Self {
+            Element::new(leaf)
+        }
+    }
+
+    /// A headless renderer (software adapter). `None` when no GPU/LLVMpipe
+    /// adapter is available — the tests then skip their assertions.
+    fn headless_renderer() -> Option<Renderer> {
+        use iced_wgpu::wgpu;
+
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .ok()?;
+
+        rt.block_on(async {
+            let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+                backends: wgpu::Backends::all(),
+                ..Default::default()
+            });
+            let adapter = instance
+                .request_adapter(&wgpu::RequestAdapterOptions {
+                    power_preference: wgpu::PowerPreference::LowPower,
+                    compatible_surface: None,
+                    force_fallback_adapter: true,
+                })
+                .await
+                .ok()?;
+            let (device, queue) = adapter
+                .request_device(&wgpu::DeviceDescriptor {
+                    label: Some("media-browser mouse_area tests"),
+                    ..Default::default()
+                })
+                .await
+                .ok()?;
+
+            let engine = iced_wgpu::Engine::new(
+                &adapter,
+                device,
+                queue,
+                wgpu::TextureFormat::Bgra8UnormSrgb,
+                None,
+                iced_wgpu::graphics::Shell::headless(),
+            );
+
+            Some(Renderer::Primary(iced_wgpu::Renderer::new(
+                engine,
+                cosmic::iced::Font::DEFAULT,
+                cosmic::iced::Pixels::from(16),
+            )))
+        })
+    }
+
+    /// Dispatch one event through the widget tree and return the published
+    /// messages, in order.
+    fn dispatch(
+        widget: &mut Element<'static, &'static str>,
+        tree: &mut Tree,
+        node: &layout::Node,
+        cursor: mouse::Cursor,
+        event: Event,
+        renderer: &Renderer,
+    ) -> Vec<&'static str> {
+        let mut messages: Vec<&'static str> = Vec::new();
+        let mut shell = Shell::new(&mut messages);
+        let mut clipboard = cosmic::iced::core::clipboard::Null;
+        let viewport =
+            Rectangle::new(Point::new(0.0, 0.0), Size::new(100.0, 100.0));
+
+        widget.as_widget_mut().update(
+            tree,
+            &event,
+            Layout::new(node),
+            cursor,
+            renderer,
+            &mut clipboard,
+            &mut shell,
+            &viewport,
+        );
+        messages
+    }
+
+    /// The test tree, mirroring the app's list:
+    ///
+    /// ```text
+    /// background area (on_press / on_release / on_right_press / on_scroll)
+    /// └── column 100x100
+    ///     ├── row area (50x20 at y=0) with on_press / on_release
+    ///     └── empty space (100x80 at y=20)
+    /// ```
+    fn test_tree(
+    ) -> Option<(
+        Element<'static, &'static str>,
+        Tree,
+        layout::Node,
+        Renderer,
+    )> {
+        let renderer = headless_renderer()?;
+
+        let row = MouseArea::new(Leaf {
+            size: Size::new(50.0, 20.0),
+        })
+        .on_press(|_| "row")
+        .on_release(|_| "rel");
+
+        let mut background: Element<'static, &'static str> = MouseArea::new(
+            cosmic::iced::widget::column::with_capacity(2)
+                .width(Length::Fixed(100.0))
+                .height(Length::Fixed(100.0))
+                .push(row)
+                .push(Leaf {
+                    size: Size::new(100.0, 80.0),
+                }),
+        )
+        .on_press(|_| "bg")
+        .on_release(|_| "brel")
+        .on_right_press(|_| "ctx")
+        .on_scroll(|_delta, _modifiers| Some("zoom"))
+        .into();
+
+        let mut tree = Tree::new(&background);
+        let node = background.as_widget_mut().layout(
+            &mut tree,
+            &renderer,
+            &layout::Limits::new(Size::new(100.0, 100.0), Size::new(100.0, 100.0)),
+        );
+
+        Some((background, tree, node, renderer))
+    }
+
+    /// Regression (0.14 migration): a left press over a list row used to be
+    /// handled by *both* the row and the list background, the background's
+    /// `Click(None)` deselecting what the row's `Click(Some(i))` selected.
+    /// With iced 0.14 capture semantics restored, only the row fires.
+    #[test]
+    fn left_press_on_row_does_not_reach_background() {
+        let Some((mut background, mut tree, node, renderer)) = test_tree()
+        else {
+            eprintln!("skip: no wgpu adapter available");
+            return;
+        };
+
+        // Over the row: only the row handler fires.
+        let messages = dispatch(
+            &mut background,
+            &mut tree,
+            &node,
+            mouse::Cursor::Available(Point::new(5.0, 10.0)),
+            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)),
+            &renderer,
+        );
+        assert_eq!(messages, vec!["row"]);
+
+        // Over the empty space (no child handler): the background fires.
+        let messages = dispatch(
+            &mut background,
+            &mut tree,
+            &node,
+            mouse::Cursor::Available(Point::new(5.0, 90.0)),
+            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)),
+            &renderer,
+        );
+        assert_eq!(messages, vec!["bg"]);
+    }
+
+    /// Same capture behavior for left release: the row's release fires, the
+    /// background's `ClickRelease(None)` (clears the selection) must not.
+    #[test]
+    fn left_release_on_row_does_not_reach_background() {
+        let Some((mut background, mut tree, node, renderer)) = test_tree()
+        else {
+            eprintln!("skip: no wgpu adapter available");
+            return;
+        };
+
+        let at_row = mouse::Cursor::Available(Point::new(5.0, 10.0));
+
+        assert_eq!(
+            dispatch(
+                &mut background,
+                &mut tree,
+                &node,
+                at_row,
+                Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)),
+                &renderer
+            ),
+            vec!["row"]
+        );
+        assert_eq!(
+            dispatch(
+                &mut background,
+                &mut tree,
+                &node,
+                at_row,
+                Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)),
+                &renderer
+            ),
+            vec!["rel"]
+        );
+    }
+
+    /// Right press is *not* handled by the row, so the background's context
+    /// menu handler must still fire — over a row and over the background.
+    #[test]
+    fn right_press_reaches_background_handler() {
+        let Some((mut background, mut tree, node, renderer)) = test_tree()
+        else {
+            eprintln!("skip: no wgpu adapter available");
+            return;
+        };
+
+        for position in [Point::new(5.0, 10.0), Point::new(5.0, 90.0)] {
+            let messages = dispatch(
+                &mut background,
+                &mut tree,
+                &node,
+                mouse::Cursor::Available(position),
+                Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right)),
+                &renderer,
+            );
+            assert_eq!(messages, vec!["ctx"], "at {position:?}");
+        }
+    }
+
+    /// A plain scroll is not handled by any child, so the background's
+    /// `on_scroll` (zoom) fires and captures the event.
+    #[test]
+    fn scroll_reaches_background_handler() {
+        let Some((mut background, mut tree, node, renderer)) = test_tree()
+        else {
+            eprintln!("skip: no wgpu adapter available");
+            return;
+        };
+
+        let messages = dispatch(
+            &mut background,
+            &mut tree,
+            &node,
+            mouse::Cursor::Available(Point::new(5.0, 10.0)),
+            Event::Mouse(mouse::Event::WheelScrolled {
+                delta: mouse::ScrollDelta::Lines { x: 0.0, y: 1.0 },
+            }),
+            &renderer,
+        );
+        assert_eq!(messages, vec!["zoom"]);
     }
 }

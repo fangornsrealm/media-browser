@@ -1,39 +1,43 @@
-// Copyright [iced-video-player]()
-// SPDX-License-Identifier: MIT
-// [MIT](http://opensource.org/licenses/MIT)
-//
-// Modifications:
-// Copyright 2024 Alexander Schwarzkopf
+//! Audio player widget (iced 0.14 / libcosmic 1.0).
+//!
+//! Displays cover art for an [`Audio`](crate::audio::audio::Audio) by
+//! submitting a static [`MediaPrimitive`] to the wgpu renderer. While
+//! playback is active the widget publishes `on_new_frame` at a throttled
+//! rate so the position UI keeps moving (audio has no video frames).
 
-use super::{audio::Audio, pipeline::VideoPrimitive};
+use crate::pipeline::MediaPrimitive;
+use crate::audio::audio::Audio;
 use cosmic::iced::{
-    advanced::{self, layout, widget, Widget},
-    Element,
+    self, core, Element,
+    core::{
+        event, layout,
+        mouse::{Cursor, Interaction},
+        widget::{self, tree::Tree},
+        Rectangle, Size,
+    },
+    window::RedrawRequest,
 };
 use iced_wgpu::primitive::Renderer as PrimitiveRenderer;
 use std::marker::PhantomData;
-use std::{sync::Arc, time::Instant};
+use std::time::{Duration, Instant};
 
-pub use gstreamer as gst;
-pub use gstreamer_pbutils as gst_pbutils;
-//use gstreamer::prelude::*;
+/// How often `on_new_frame` is published while playing.
+const NEW_FRAME_PERIOD: Duration = Duration::from_millis(200);
 
-/// Video player widget which displays the current frame of a [`Video`](crate::Video).
-pub struct AudioPlayer<'a, Message, Theme = cosmic::iced::Theme, Renderer = cosmic::iced::Renderer>
+/// Audio player widget which displays the cover art of an [`Audio`].
+pub struct AudioPlayer<'a, Message, Theme = iced::Theme, Renderer = iced::Renderer>
 where
     Renderer: PrimitiveRenderer,
 {
     audio: &'a Audio,
-    content_fit: cosmic::iced::ContentFit,
-    width: cosmic::iced::Length,
-    height: cosmic::iced::Length,
+    content_fit: iced::ContentFit,
+    width: iced::Length,
+    height: iced::Length,
     mouse_hidden: bool,
     on_end_of_stream: Option<Message>,
-    _on_new_frame: Option<Message>,
-    _on_subtitle_text: Option<Box<dyn Fn(Option<String>) -> Message + 'a>>,
-    on_error: Option<Box<dyn Fn(gst::glib::Error) -> Message + 'a>>,
-    on_missing_plugin: Option<Box<dyn Fn(gst::Message) -> Message + 'a>>,
-    on_warning: Option<Box<dyn Fn(gst::glib::Error) -> Message + 'a>>,
+    on_new_frame: Option<Message>,
+    /// Last time `on_new_frame` was published.
+    last_new_frame: Option<Instant>,
     _phantom: PhantomData<(Theme, Renderer)>,
 }
 
@@ -41,26 +45,23 @@ impl<'a, Message, Theme, Renderer> AudioPlayer<'a, Message, Theme, Renderer>
 where
     Renderer: PrimitiveRenderer,
 {
-    /// Creates a new video player widget for a given video.
+    /// Creates a new audio player widget for a given audio file.
     pub fn new(audio: &'a Audio) -> Self {
         AudioPlayer {
             audio,
-            content_fit: cosmic::iced::ContentFit::Contain,
-            width: cosmic::iced::Length::Shrink,
-            height: cosmic::iced::Length::Shrink,
+            content_fit: iced::ContentFit::Contain,
+            width: iced::Length::Shrink,
+            height: iced::Length::Shrink,
             mouse_hidden: false,
             on_end_of_stream: None,
-            _on_new_frame: None,
-            _on_subtitle_text: None,
-            on_error: None,
-            on_missing_plugin: None,
-            on_warning: None,
-            _phantom: Default::default(),
+            on_new_frame: None,
+            last_new_frame: None,
+            _phantom: PhantomData::default(),
         }
     }
 
     /// Sets the width of the `AudioPlayer` boundaries.
-    pub fn width(self, width: impl Into<cosmic::iced::Length>) -> Self {
+    pub fn width(self, width: impl Into<iced::Length>) -> Self {
         AudioPlayer {
             width: width.into(),
             ..self
@@ -68,7 +69,7 @@ where
     }
 
     /// Sets the height of the `AudioPlayer` boundaries.
-    pub fn height(self, height: impl Into<cosmic::iced::Length>) -> Self {
+    pub fn height(self, height: impl Into<iced::Length>) -> Self {
         AudioPlayer {
             height: height.into(),
             ..self
@@ -76,13 +77,14 @@ where
     }
 
     /// Sets the `ContentFit` of the `AudioPlayer`.
-    pub fn content_fit(self, content_fit: cosmic::iced::ContentFit) -> Self {
+    pub fn content_fit(self, content_fit: iced::ContentFit) -> Self {
         AudioPlayer {
             content_fit,
             ..self
         }
     }
 
+    /// Whether the cursor should be hidden while hovering.
     pub fn mouse_hidden(self, mouse_hidden: bool) -> Self {
         AudioPlayer {
             mouse_hidden,
@@ -90,7 +92,7 @@ where
         }
     }
 
-    /// Message to send when the video reaches the end of stream (i.e., the video ends).
+    /// Message to send when the audio reaches the end of stream.
     pub fn on_end_of_stream(self, on_end_of_stream: Message) -> Self {
         AudioPlayer {
             on_end_of_stream: Some(on_end_of_stream),
@@ -98,238 +100,139 @@ where
         }
     }
 
-    /// Message to send when the video receives a new frame.
+    /// Message to send periodically while playing (position updates).
     pub fn on_new_frame(self, on_new_frame: Message) -> Self {
         AudioPlayer {
-            _on_new_frame: Some(on_new_frame),
-            ..self
-        }
-    }
-
-    /// Message to send when the subtitle receives a new frame.
-    pub fn on_subtitle_text<F>(self, on_subtitle_text: F) -> Self
-    where
-        F: 'a + Fn(Option<String>) -> Message,
-    {
-        AudioPlayer {
-            _on_subtitle_text: Some(Box::new(on_subtitle_text)),
-            ..self
-        }
-    }
-
-    /// Message to send when the video playback encounters an error.
-    pub fn on_error<F>(self, on_error: F) -> Self
-    where
-        F: 'a + Fn(gst::glib::Error) -> Message,
-    {
-        AudioPlayer {
-            on_error: Some(Box::new(on_error)),
-            ..self
-        }
-    }
-
-    pub fn on_missing_plugin<F>(self, on_missing_plugin: F) -> Self
-    where
-        F: 'a + Fn(gst::Message) -> Message,
-    {
-        AudioPlayer {
-            on_missing_plugin: Some(Box::new(on_missing_plugin)),
-            ..self
-        }
-    }
-
-    pub fn on_warning<F>(self, on_warning: F) -> Self
-    where
-        F: 'a + Fn(gst::glib::Error) -> Message,
-    {
-        AudioPlayer {
-            on_warning: Some(Box::new(on_warning)),
+            on_new_frame: Some(on_new_frame),
             ..self
         }
     }
 }
 
-impl<'a, Message, Theme, Renderer> Widget<Message, Theme, Renderer>
+impl<'a, Message, Theme, Renderer> widget::Widget<Message, Theme, Renderer>
     for AudioPlayer<'a, Message, Theme, Renderer>
 where
-    Message: Clone,
-    Renderer: PrimitiveRenderer,
+    Message: 'a + Clone,
+    Theme: 'a,
+    Renderer: 'a + PrimitiveRenderer,
 {
-    fn size(&self) -> cosmic::iced::Size<cosmic::iced::Length> {
-        cosmic::iced::Size {
-            width: cosmic::iced::Length::Shrink,
-            height: cosmic::iced::Length::Shrink,
-        }
+    fn size(&self) -> Size<iced::Length> {
+        Size::new(self.width, self.height)
     }
 
-    fn layout(
-        &self,
-        _tree: &mut widget::Tree,
-        _renderer: &Renderer,
-        limits: &layout::Limits,
-    ) -> layout::Node {
-        // based on `Image::layout`
-        let (width, height) = self.audio.size();
-        let image_size = cosmic::iced::Size::new(width as f32, height as f32);
-        let raw_size = limits.resolve(self.width, self.height, image_size);
-        let full_size = self.content_fit.fit(image_size, raw_size);
-        let final_size = cosmic::iced::Size {
-            width: match self.width {
-                cosmic::iced::Length::Shrink => f32::min(raw_size.width, full_size.width),
-                _ => raw_size.width,
-            },
-            height: match self.height {
-                cosmic::iced::Length::Shrink => f32::min(raw_size.height, full_size.height),
-                _ => raw_size.height,
-            },
-        };
-
-        layout::Node::new(final_size)
+    fn layout(&mut self, _tree: &mut Tree, _renderer: &Renderer, limits: &layout::Limits) -> layout::Node {
+        layout::sized(limits, self.width, self.height, |_| Size::ZERO)
     }
 
     fn draw(
         &self,
-        _tree: &widget::Tree,
+        _tree: &Tree,
         renderer: &mut Renderer,
         _theme: &Theme,
-        _style: &advanced::renderer::Style,
-        layout: advanced::Layout<'_>,
-        _cursor: advanced::mouse::Cursor,
-        _viewport: &cosmic::iced::Rectangle,
+        _style: &core::renderer::Style,
+        layout: cosmic::iced::core::Layout<'_>,
+        _cursor: Cursor,
+        _viewport: &Rectangle,
     ) {
-        let inner = self.audio.read();
-
-        // bounds based on `Image::draw`
-        let image_size = cosmic::iced::Size::new(inner.width as f32, inner.height as f32);
         let bounds = layout.bounds();
-        let adjusted_fit = self.content_fit.fit(image_size, bounds.size());
-        let scale = cosmic::iced::Vector::new(
-            adjusted_fit.width / image_size.width,
-            adjusted_fit.height / image_size.height,
+        let cover = self.audio.cover();
+        // Fit the (typically square) cover art into the widget bounds.
+        let size = self.content_fit.fit(
+            Size::new(cover.width as f32, cover.height as f32),
+            bounds.size(),
         );
-        let final_size =
-            cosmic::iced::Size::new(image_size.width * scale.x, image_size.height * scale.y);
-
-        let position = match self.content_fit {
-            cosmic::iced::ContentFit::None => cosmic::iced::Point::new(
-                bounds.x + (image_size.width - adjusted_fit.width) / 2.0,
-                bounds.y + (image_size.height - adjusted_fit.height) / 2.0,
-            ),
-            _ => cosmic::iced::Point::new(
-                bounds.center_x() - final_size.width / 2.0,
-                bounds.center_y() - final_size.height / 2.0,
-            ),
+        let drawing_bounds = Rectangle {
+            x: bounds.x + (bounds.width - size.width) / 2.0,
+            y: bounds.y + (bounds.height - size.height) / 2.0,
+            width: size.width,
+            height: size.height,
         };
-
-        let drawing_bounds = cosmic::iced::Rectangle::new(position, final_size);
 
         renderer.draw_primitive(
             drawing_bounds,
-            VideoPrimitive::new(
-                inner.id,
-                Arc::clone(&inner.alive),
-                Arc::clone(&inner.frame),
-                (inner.width as _, inner.height as _),
-                true,
-            ),
+            MediaPrimitive {
+                id: self.audio.id(),
+                alive: self.audio.alive(),
+                frame: std::sync::Arc::clone(&cover.bytes),
+                width: cover.width,
+                height: cover.height,
+                stride: cover.stride,
+                new_frame: true,
+            },
         );
     }
 
-    fn on_event(
+    fn update(
         &mut self,
-        _state: &mut cosmic::iced::core::widget::Tree,
-        event: cosmic::iced::Event,
-        _layout: advanced::Layout<'_>,
-        _cursor: advanced::mouse::Cursor,
+        _tree: &mut Tree,
+        event: &event::Event,
+        _layout: cosmic::iced::core::Layout<'_>,
+        _cursor: Cursor,
         _renderer: &Renderer,
-        _clipboard: &mut dyn advanced::Clipboard,
-        shell: &mut advanced::Shell<'_, Message>,
-        _viewport: &cosmic::iced::Rectangle,
-    ) -> cosmic::iced::event::Status {
-        let mut inner = self.audio.write();
+        _clipboard: &mut dyn core::Clipboard,
+        shell: &mut core::Shell<'_, Message>,
+        _viewport: &Rectangle,
+    ) {
+        match *event {
+            event::Event::Window(cosmic::iced::window::Event::RedrawRequested(_)) => {
+                let audio = self.audio;
 
-        if let cosmic::iced::Event::Window(cosmic::iced::window::Event::RedrawRequested(_)) = event
-        {
-            if inner.restart_stream || (!inner.is_eos && !inner.paused()) {
-                let mut restart_stream = false;
-                if inner.restart_stream {
-                    restart_stream = true;
-                    // Set flag to false to avoid potentially multiple seeks
-                    inner.restart_stream = false;
-                }
-                let mut eos_pause = false;
+                // Drain mpv events; maintains EOS / looping state.
+                audio.handle_events();
 
-                while let Some(msg) = inner
-                    .bus
-                    .pop_filtered(&[gst::MessageType::Error, gst::MessageType::Eos])
-                {
-                    match msg.view() {
-                        gst::MessageView::Error(err) => {
-                            log::error!("bus returned an error: {err}");
-                            if let Some(ref on_error) = self.on_error {
-                                shell.publish(on_error(err.error()))
-                            };
+                // Report end-of-file exactly once.
+                if audio.take_eos_event() {
+                    if !audio.looping() {
+                        let _ = audio.set_paused(true);
+                        if let Some(msg) = self.on_end_of_stream.clone() {
+                            shell.publish(msg);
                         }
-                        gst::MessageView::Element(element) => {
-                            if gst_pbutils::MissingPluginMessage::is(&element) {
-                                if let Some(ref on_missing_plugin) = self.on_missing_plugin {
-                                    shell.publish(on_missing_plugin(element.copy()));
-                                }
-                            }
-                        }
-                        gst::MessageView::Eos(_eos) => {
-                            if let Some(on_end_of_stream) = self.on_end_of_stream.clone() {
-                                shell.publish(on_end_of_stream);
-                            }
-                            if inner.looping {
-                                restart_stream = true;
-                            } else {
-                                eos_pause = true;
-                            }
-                        }
-                        gst::MessageView::Warning(warn) => {
-                            log::warn!("bus returned a warning: {warn}");
-                            if let Some(ref on_warning) = self.on_warning {
-                                shell.publish(on_warning(warn.error()));
-                            }
-                        }
-                        _ => {}
                     }
                 }
 
-                // Don't run eos_pause if restart_stream is true; fixes "pausing" after restarting a stream
-                if restart_stream {
-                    if let Err(err) = inner.restart_stream() {
-                        log::error!("cannot restart stream (can't seek): {err:#?}");
+                // Periodic position updates while playing.
+                if !audio.paused() && !audio.eos() {
+                    let now = Instant::now();
+                    if self
+                        .last_new_frame
+                        .map(|t| now.duration_since(t) >= NEW_FRAME_PERIOD)
+                        .unwrap_or(true)
+                    {
+                        self.last_new_frame = Some(now);
+                        if let Some(msg) = self.on_new_frame.clone() {
+                            shell.publish(msg);
+                        }
                     }
-                } else if eos_pause {
-                    inner.is_eos = true;
-                    inner.set_paused(true);
+                    shell.request_redraw_at(RedrawRequest::At(
+                        now + NEW_FRAME_PERIOD,
+                    ));
+                } else {
+                    shell.request_redraw_at(RedrawRequest::At(
+                        Instant::now() + Duration::from_millis(100),
+                    ));
                 }
-                shell.request_redraw(cosmic::iced::window::RedrawRequest::NextFrame);
-            } else {
-                shell.request_redraw(cosmic::iced::window::RedrawRequest::At(
-                    Instant::now() + core::time::Duration::from_millis(32),
-                ));
             }
-            cosmic::iced::event::Status::Captured
-        } else {
-            cosmic::iced::event::Status::Ignored
+            _ => {}
         }
     }
 
     fn mouse_interaction(
         &self,
-        _tree: &cosmic::iced::core::widget::Tree,
-        _layout: advanced::Layout<'_>,
-        _cursor_position: cosmic::iced::mouse::Cursor,
-        _viewport: &cosmic::iced::Rectangle,
+        _tree: &Tree,
+        layout: cosmic::iced::core::Layout<'_>,
+        cursor_position: Cursor,
+        _viewport: &Rectangle,
         _renderer: &Renderer,
-    ) -> cosmic::iced::mouse::Interaction {
-        if self.mouse_hidden {
-            cosmic::iced::mouse::Interaction::Idle
+    ) -> Interaction {
+        let bounds = layout.bounds();
+        let is_mouse_over = cursor_position.is_over(bounds);
+
+        if is_mouse_over {
+            Interaction::Grab
+        } else if self.mouse_hidden {
+            Interaction::Idle
         } else {
-            cosmic::iced::mouse::Interaction::default()
+            Interaction::default()
         }
     }
 }
@@ -341,7 +244,7 @@ where
     Theme: 'a,
     Renderer: 'a + PrimitiveRenderer,
 {
-    fn from(video_player: AudioPlayer<'a, Message, Theme, Renderer>) -> Self {
-        Self::new(video_player)
+    fn from(audio_player: AudioPlayer<'a, Message, Theme, Renderer>) -> Self {
+        Self::new(audio_player)
     }
 }

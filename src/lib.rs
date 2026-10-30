@@ -26,6 +26,7 @@ mod mouse_area;
 pub mod mpv;
 mod operation;
 pub mod parsers;
+pub mod pipeline;
 pub mod scanmetadata;
 mod spawn_detached;
 pub mod sql;

@@ -13,9 +13,10 @@
 //! out of the former inline definition inside `App::update`) so this
 //! sibling module can access it.
 
-use cosmic::app::{message, Task};
-use cosmic::widget::{self, segmented_button::Entity};
 use cosmic::Application;
+use cosmic::action as message;
+use cosmic::app::Task;
+use cosmic::widget::{self, segmented_button::Entity};
 
 use super::{App, DialogPage, Message};
 use crate::clipboard::ClipboardPaste;

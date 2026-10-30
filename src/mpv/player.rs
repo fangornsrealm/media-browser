@@ -1,139 +1,243 @@
 //! Safe Rust wrapper around the libmpv client API (see [`super::ffi`]).
 //!
-//! This is the **unblocked, independently-testable** part of the libmpv
-//! migration (plan §7.2): it drives decoding / playback / properties / events
-//! through the mpv *client* ABI and is exercised by the unit tests below. It
-//! deliberately excludes the render-context path (Vulkan / OpenGL sub-API),
-//! which is blocked by R1 — wgpu 28 cannot hand mpv a `VkInstance` /
-//! `VkDevice` / `VkQueue`, nor import mpv's rendered `VkImage`. See
-//! `docs/PLAN-libcosmic-1.0-wgpu-28-libmpv.md`, Appendix B (Q2).
-//!
-//! # Threading
-//!
-//! [`MpvPlayer`] holds a single raw `mpv_handle` and is intentionally neither
-//! `Send` nor `Sync` (raw pointers do not auto-derive them). Individual mpv
-//! commands are thread-safe, but the event loop ([`MpvPlayer::wait_event`])
-//! should be driven from one thread.
+//! This module drives decode / playback / properties / events through the
+//! mpv client ABI. It is fully testable headless (no display, no GPU):
+//! properties and the event queue work without any output driver, which the
+//! unit tests below rely on.
 //!
 //! # Units
 //!
-//! Values use mpv's **native** units:
+//! Values use mpv's native units:
 //! * `volume`: `0.0` (silent) … `100.0` (100%); above `100.0` amplifies.
-//! * `position` / `duration` / `speed` / `seek`: seconds (`f64`).
+//! * `time_pos` / `duration` / `speed` / seek amounts: seconds (`f64`).
 //!
-//! The higher-level model (plan §8.1) maps these onto the app's `0.0..=1.0`
-//! volume scale and `Duration`-based timing.
+//! The video/audio models map these onto the app's `0.0..=1.0` volume
+//! scale.
+//!
+//! # Threading
+//!
+//! mpv's client API is thread-safe (except [`MpvPlayer::next_event`], which
+//! must be driven from a single thread per handle, and the render context,
+//! which has its own thread rules — see [`super::render`]). [`MpvPlayer`]
+//! is therefore `Send + Sync`.
 
 use std::ffi::CString;
-use std::os::raw::c_void;
 
-use super::ffi;
-
-// ---------------------------------------------------------------------------
-// Errors
-// ---------------------------------------------------------------------------
-
-/// Errors returned by the safe [`MpvPlayer`] wrapper.
-#[derive(Debug, thiserror::Error)]
-pub enum MpvError {
-    /// `mpv_create()` returned NULL (e.g. out of memory).
-    #[error("mpv_create() returned NULL")]
-    CreateFailed,
-    /// `mpv_initialize()` failed with the given mpv status code.
-    #[error("mpv_initialize() failed with status {0}")]
-    Init(i32),
-    /// A `&str` to be passed to libmpv contained an interior NUL byte.
-    #[error("a C string contained an interior NUL byte")]
-    NulByte,
-    /// An mpv command or property call returned a non-success status.
-    #[error("mpv call failed with status {0}")]
-    Status(i32),
-}
+use super::ffi::{self, MpvError, mpv_handle};
 
 // ---------------------------------------------------------------------------
-// Track / event types
+// Track types
 // ---------------------------------------------------------------------------
 
-/// A media track kind, mirroring mpv's `aid` / `vid` / `sid` properties.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// A media track kind, mirroring mpv's `track-list` `type` field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TrackKind {
-    /// Audio track (`aid`).
-    Audio,
-    /// Video track (`vid`).
     Video,
-    /// Subtitle track (`sid`).
-    Subtitle,
+    Audio,
+    Sub,
+    Other,
 }
 
 impl TrackKind {
-    /// The mpv property that holds the active track id for this kind.
-    const fn prop(self) -> &'static str {
+    /// Decode mpv's `type` string (`"video"`, `"audio"`, `"sub"`, `"other"`).
+    pub fn from_mpv(s: &str) -> Self {
+        match s {
+            "video" => Self::Video,
+            "audio" => Self::Audio,
+            "sub" => Self::Sub,
+            _ => Self::Other,
+        }
+    }
+
+    /// The mpv property that selects a track of this kind
+    /// (`vid` / `aid` / `sid`).
+    pub const fn select_property(self) -> &'static str {
         match self {
-            TrackKind::Audio => "aid",
-            TrackKind::Video => "vid",
-            TrackKind::Subtitle => "sid",
+            Self::Video => "vid",
+            Self::Audio => "aid",
+            Self::Sub => "sid",
+            Self::Other => "tid",
+        }
+    }
+
+    /// mpv's `type` string.
+    pub const fn as_mpv(self) -> &'static str {
+        match self {
+            Self::Video => "video",
+            Self::Audio => "audio",
+            Self::Sub => "sub",
+            Self::Other => "other",
         }
     }
 }
 
-/// An active media track.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// An entry of mpv's `track-list` property.
+#[derive(Debug, Clone, PartialEq)]
 pub struct Track {
-    pub kind: TrackKind,
-    /// mpv track id (`> 0` = concrete track, `0` = none, `-1` = auto).
+    /// Track id (mpv `id`; pass to [`MpvPlayer::select_track`]).
     pub id: i64,
+    /// Human-readable title, if present.
+    pub title: Option<String>,
+    /// ISO 639-2 language code, if present.
+    pub language: Option<String>,
+    pub kind: TrackKind,
+    /// Whether this track is currently selected.
+    pub selected: bool,
 }
 
-/// A (header) event returned by [`MpvPlayer::wait_event`].
-#[derive(Debug, Clone, Copy)]
+impl Track {
+    fn from_ffi(t: &ffi::Track) -> Self {
+        Self {
+            id: t.id,
+            title: t.title.clone(),
+            language: t.language.clone(),
+            kind: TrackKind::from_mpv(&t.kind),
+            selected: t.selected,
+        }
+    }
+
+    /// Human-readable label: title, then language name, then
+    /// `{fallback} #{index}`.
+    pub fn display_name(&self, fallback: &str, index: usize) -> String {
+        if let Some(t) = &self.title {
+            if !t.is_empty() {
+                return t.clone();
+            }
+        }
+        if let Some(lang) = &self.language {
+            if !lang.is_empty() {
+                return super::language_name(lang)
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| lang.clone());
+            }
+        }
+        format!("{fallback} #{index}")
+    }
+}
+
+/// Map an ISO 639 language code (as reported by mpv, usually 3-letter
+/// 639-2 like "eng"/"deu") to a display name.
+pub fn language_name(code: &str) -> Option<&'static str> {
+    let code = code.trim().to_ascii_lowercase();
+    let by_len = |len: usize| {
+        code.get(..len).and_then(|n| match n {
+            "en" => Some("English"),
+            "de" => Some("German"),
+            "fr" => Some("French"),
+            "es" => Some("Spanish"),
+            "it" => Some("Italian"),
+            "pt" => Some("Portuguese"),
+            "ru" => Some("Russian"),
+            "ja" => Some("Japanese"),
+            "zh" => Some("Chinese"),
+            "ko" => Some("Korean"),
+            "nl" => Some("Dutch"),
+            "pl" => Some("Polish"),
+            "tr" => Some("Turkish"),
+            "ar" => Some("Arabic"),
+            "hi" => Some("Hindi"),
+            "sv" => Some("Swedish"),
+            "no" => Some("Norwegian"),
+            "da" => Some("Danish"),
+            "fi" => Some("Finnish"),
+            "el" => Some("Greek"),
+            "he" => Some("Hebrew"),
+            "cs" => Some("Czech"),
+            "hu" => Some("Hungarian"),
+            "ro" => Some("Romanian"),
+            "uk" => Some("Ukrainian"),
+            "th" => Some("Thai"),
+            "vi" => Some("Vietnamese"),
+            "id" => Some("Indonesian"),
+            "ms" => Some("Malay"),
+            "tl" => Some("Filipino"),
+            "eng" => Some("English"),
+            "ger" | "deu" => Some("German"),
+            "fra" => Some("French"),
+            "spa" => Some("Spanish"),
+            "ita" => Some("Italian"),
+            "por" => Some("Portuguese"),
+            "rus" => Some("Russian"),
+            "jpn" | "jap" => Some("Japanese"),
+            "zho" | "chi" => Some("Chinese"),
+            "kor" => Some("Korean"),
+            "nld" | "dut" => Some("Dutch"),
+            "pol" => Some("Polish"),
+            "tur" => Some("Turkish"),
+            "ara" => Some("Arabic"),
+            "hin" => Some("Hindi"),
+            "swe" => Some("Swedish"),
+            "nor" => Some("Norwegian"),
+            "dan" => Some("Danish"),
+            "fin" => Some("Finnish"),
+            "ell" | "gre" => Some("Greek"),
+            "heb" => Some("Hebrew"),
+            "ces" | "cze" => Some("Czech"),
+            "hun" => Some("Hungarian"),
+            "ron" | "rum" => Some("Romanian"),
+            "ukr" => Some("Ukrainian"),
+            "tha" => Some("Thai"),
+            "vie" => Some("Vietnamese"),
+            "ind" => Some("Indonesian"),
+            "msa" | "may" => Some("Malay"),
+            "tgl" | "fil" => Some("Filipino"),
+            _ => None,
+        })
+    };
+    // Prefer the exact (usually 3-letter) code, then fall back to the
+    // leading 2-letter form.
+    by_len(code.len()).or_else(|| by_len(2))
+}
+
+// ---------------------------------------------------------------------------
+// Events
+// ---------------------------------------------------------------------------
+
+/// A decoded event from [`MpvPlayer::next_event`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MpvEvent {
-    /// `enum mpv_event_id` (see `ffi::MPV_EVENT_*`).
-    pub event_id: i32,
-    /// mpv status code for the event; [`ffi::MPV_ERROR_SUCCESS`] on success.
+    /// One of `ffi::MPV_EVENT_*`.
+    pub id: i32,
+    /// `0` on success, negative `ffi::MPV_ERROR_*` on error.
     pub error: i32,
+    /// Only for `MPV_EVENT_END_FILE`: one of `ffi::MPV_END_FILE_REASON_*`.
+    pub end_file_reason: Option<i32>,
 }
 
 impl MpvEvent {
-    /// The raw `mpv_event_id`.
-    pub fn id(&self) -> i32 {
-        self.event_id
+    /// `true` if the event is "no event" (poll timeout).
+    pub const fn is_none(self) -> bool {
+        self.id == ffi::MPV_EVENT_NONE
     }
-
-    /// `true` if the event carried no error.
-    pub fn ok(&self) -> bool {
-        self.error == ffi::MPV_ERROR_SUCCESS
+    pub const fn is_end_file(self) -> bool {
+        self.id == ffi::MPV_EVENT_END_FILE
     }
-
-    /// `true` for `MPV_EVENT_END_FILE` (end of playback / error-out of a file).
-    pub fn is_end_file(&self) -> bool {
-        self.event_id == ffi::MPV_EVENT_END_FILE
+    /// END_FILE with reason `EOF` (natural end of the file).
+    pub fn is_end_of_file(self) -> bool {
+        self.id == ffi::MPV_EVENT_END_FILE
+            && self.end_file_reason == Some(ffi::MPV_END_FILE_REASON_EOF)
     }
-
-    /// `true` for `MPV_EVENT_SHUTDOWN`.
-    pub fn is_shutdown(&self) -> bool {
-        self.event_id == ffi::MPV_EVENT_SHUTDOWN
+    pub const fn is_shutdown(self) -> bool {
+        self.id == ffi::MPV_EVENT_SHUTDOWN
     }
-
-    /// `true` for `MPV_EVENT_FILE_LOADED`.
-    pub fn is_file_loaded(&self) -> bool {
-        self.event_id == ffi::MPV_EVENT_FILE_LOADED
+    pub const fn is_idle(self) -> bool {
+        self.id == ffi::MPV_EVENT_IDLE
     }
 }
 
 // ---------------------------------------------------------------------------
-// C-string helpers
+// Helpers
 // ---------------------------------------------------------------------------
 
 fn to_cstr(s: &str) -> Result<CString, MpvError> {
-    CString::new(s).map_err(|_| MpvError::NulByte)
+    CString::new(s).map_err(|_| MpvError(ffi::MPV_ERROR_INVALID_PARAMETER))
 }
 
-/// Escape `s` for use as an argument inside an mpv command string.
+/// Escape `s` for use inside an mpv command string.
 ///
 /// mpv command strings separate arguments by whitespace and support `"..."`
 /// quoting with `\"` and `\\` escapes. We wrap the value in quotes and escape
-/// those two metacharacters so paths/URLs containing spaces round-trip
-/// correctly (see `loadfile` / `set sub-file` below).
+/// those two metacharacters so paths containing spaces round-trip.
 fn mpv_quote(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);
     out.push('"');
@@ -148,348 +252,740 @@ fn mpv_quote(s: &str) -> String {
     out
 }
 
-/// Apply a single `name=value` option to a pre-init handle.
-fn apply_option(handle: *mut ffi::mpv_handle, name: &str, value: &str) -> Result<(), MpvError> {
-    let c_name = to_cstr(name)?;
-    let c_value = to_cstr(value)?;
-    // SAFETY: `handle` is valid (owned by the caller, pre-initialization);
-    // `c_name` / `c_value` are valid NUL-terminated strings outliving the call.
-    let rc = unsafe { ffi::mpv_set_option_string(handle, c_name.as_ptr(), c_value.as_ptr()) };
-    if rc != ffi::MPV_ERROR_SUCCESS {
-        return Err(MpvError::Status(rc));
-    }
-    Ok(())
-}
-
 // ---------------------------------------------------------------------------
 // MpvPlayer
 // ---------------------------------------------------------------------------
 
-/// A safe handle to a single mpv player instance.
+/// A safe handle to a single mpv core.
 ///
-/// Owns the underlying `mpv_handle`; it is terminated on drop.
+/// Owns the underlying `mpv_handle`; terminated on drop.
 pub struct MpvPlayer {
-    handle: *mut ffi::mpv_handle,
+    handle: *mut mpv_handle,
 }
+
+// mpv's client API is documented thread-safe (one thread per
+// `mpv_wait_event`, one thread per render context — see `super::render`).
+unsafe impl Send for MpvPlayer {}
+unsafe impl Sync for MpvPlayer {}
 
 impl std::fmt::Debug for MpvPlayer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MpvPlayer")
-            .field("handle", &(self.handle as *const ()))
-            .finish()
+        f.debug_struct("MpvPlayer").finish()
     }
 }
 
 impl MpvPlayer {
-    /// Create a player with only `config=no` set (user config ignored).
+    /// Create a core without initializing it.
     ///
-    /// Audio / video output are left at mpv defaults; use
-    /// [`with_options`](Self::with_options) to pin, e.g., a specific `ao`/`vo`.
-    pub fn new() -> Result<Self, MpvError> {
-        Self::with_options(&[])
-    }
-
-    /// Create a player, applying the given `name=value` options before
-    /// initialization.
-    pub fn with_options(options: &[(&str, &str)]) -> Result<Self, MpvError> {
-        // SAFETY: mpv_create() returns an opaque handle we exclusively own.
+    /// Sets `vo=libmpv` so that video frames are routed through the render
+    /// context API (see [`super::render`]) instead of a display VO. Set more
+    /// options with [`MpvPlayer::set_option`], then call [`MpvPlayer::init`].
+    pub fn uninitialized() -> Result<Self, MpvError> {
+        Self::pin_c_numeric_locale();
         let handle = unsafe { ffi::mpv_create() };
         if handle.is_null() {
-            return Err(MpvError::CreateFailed);
+            return Err(MpvError(ffi::MPV_ERROR_NOMEM));
         }
+        let _ = Self::set_option_raw(handle, "vo", "libmpv");
+        Ok(Self { handle })
+    }
 
-        // Ignore user config files for deterministic behavior.
-        apply_option(handle, "config", "no")?;
-        for (name, value) in options {
-            apply_option(handle, name, value)?;
+    /// libmpv requires a C locale: under a non-C `LC_NUMERIC` (e.g. `de_DE`)
+    /// it prints "Non-C locale detected. This is not supported." and
+    /// misparses numeric option/property values (or fails core init). The
+    /// C library locale is process-global, so pin `LC_NUMERIC` to C on
+    /// every core creation. Keeping it pinned is safe: everything else in
+    /// this app (Rust std, ICU collation, chrono) formats numbers
+    /// locale-independently.
+    fn pin_c_numeric_locale() {
+        unsafe {
+            libc::setlocale(libc::LC_NUMERIC, b"C\0".as_ptr().cast());
         }
-
-        // SAFETY: `handle` is valid; all options were set pre-initialization.
-        let rc = unsafe { ffi::mpv_initialize(handle) };
-        if rc != ffi::MPV_ERROR_SUCCESS {
-            // SAFETY: we own `handle` and are abandoning it.
-            unsafe { ffi::mpv_terminate_destroy(handle) };
-            return Err(MpvError::Init(rc));
-        }
-
-        Ok(MpvPlayer { handle })
     }
 
-    /// Create a fully headless player (no audio, no video) — for tests and for
-    /// property/event-driven use where no output surface exists.
-    pub fn new_headless() -> Result<Self, MpvError> {
-        Self::with_options(&[("ao", "null"), ("vo", "null")])
+    fn set_option_raw(handle: *mut mpv_handle, name: &str, value: &str) -> Result<(), MpvError> {
+        let cname = to_cstr(name)?;
+        let cvalue = to_cstr(value)?;
+        let rc = unsafe { ffi::mpv_set_option_string(handle, cname.as_ptr(), cvalue.as_ptr()) };
+        ffi::result_of(rc)
     }
 
-    // -- commands --------------------------------------------------------
-
-    /// Run a raw mpv command string (e.g. `"cycle-video-rotate"`).
-    pub fn command(&self, cmd: &str) -> Result<(), MpvError> {
-        let c_cmd = to_cstr(cmd)?;
-        // SAFETY: valid handle; `c_cmd` is a valid NUL-terminated string.
-        let rc = unsafe { ffi::mpv_command_string(self.handle, c_cmd.as_ptr()) };
-        if rc != ffi::MPV_ERROR_SUCCESS {
-            return Err(MpvError::Status(rc));
-        }
-        Ok(())
+    /// Create and immediately initialize a core (no pre-init options).
+    pub fn new() -> Result<Self, MpvError> {
+        Self::new_with_options(&[])
     }
 
-    /// Load and play a media file.
-    pub fn load_file(&self, path: &str) -> Result<(), MpvError> {
-        self.command(&format!("loadfile {}", mpv_quote(path)))
-    }
-
-    /// Pause or resume playback.
-    pub fn set_paused(&self, paused: bool) -> Result<(), MpvError> {
-        self.command(&format!("set pause {}", if paused { "yes" } else { "no" }))
-    }
-
-    /// Whether playback is currently paused.
-    pub fn paused(&self) -> Result<bool, MpvError> {
-        self.get_bool("pause")
-    }
-
-    /// Seek to `time` (seconds). `exact` requests keyframe-exact (slower) seek.
-    pub fn seek(&self, time: f64, exact: bool) -> Result<(), MpvError> {
-        let mode = if exact { "exact" } else { "absolute" };
-        self.command(&format!("seek {} {}", time, mode))
-    }
-
-    /// Set volume (`0.0` = silent, `100.0` = 100%; >100 amplifies).
-    pub fn set_volume(&self, volume: f64) -> Result<(), MpvError> {
-        self.command(&format!("set volume {}", volume))
-    }
-
-    /// Get volume (mpv units, default `100.0`).
-    pub fn volume(&self) -> Result<f64, MpvError> {
-        self.get_double("volume")
-    }
-
-    /// Mute / unmute without changing the volume value.
-    pub fn set_muted(&self, muted: bool) -> Result<(), MpvError> {
-        self.command(&format!("set mute {}", if muted { "yes" } else { "no" }))
-    }
-
-    /// Whether playback is muted.
-    pub fn muted(&self) -> Result<bool, MpvError> {
-        self.get_bool("mute")
-    }
-
-    /// Set playback speed (default `1.0`).
-    pub fn set_speed(&self, speed: f64) -> Result<(), MpvError> {
-        self.command(&format!("set speed {}", speed))
-    }
-
-    /// Get playback speed.
-    pub fn speed(&self) -> Result<f64, MpvError> {
-        self.get_double("speed")
-    }
-
-    /// Current playback position in seconds.
-    pub fn position(&self) -> Result<f64, MpvError> {
-        self.get_double("time-pos")
-    }
-
-    /// Total duration in seconds (may be `0.0`/`-1.0` if unknown or idle).
-    pub fn duration(&self) -> Result<f64, MpvError> {
-        self.get_double("duration")
-    }
-
-    /// Display width of the current video (0 if there is none).
-    pub fn width(&self) -> Result<u32, MpvError> {
-        self.get_int64("dwidth").map(|w| w.max(0) as u32)
-    }
-
-    /// Display height of the current video (0 if there is none).
-    pub fn height(&self) -> Result<u32, MpvError> {
-        self.get_int64("dheight").map(|h| h.max(0) as u32)
-    }
-
-    // -- tracks ----------------------------------------------------------
-
-    /// The active track id for `kind` (mpv semantics: `>0` track, `0` none,
-    /// `-1` auto).
-    pub fn active_track(&self, kind: TrackKind) -> Result<i64, MpvError> {
-        self.get_int64(kind.prop())
-    }
-
-    /// Set the active track for `kind` to `id` (`0` = none, `-1` = auto).
-    pub fn set_track(&self, kind: TrackKind, id: i64) -> Result<(), MpvError> {
-        self.command(&format!("set {} {}", kind.prop(), id))
-    }
-
-    /// Load an external subtitle file and enable it.
-    pub fn set_subtitle_url(&self, url: &str) -> Result<(), MpvError> {
-        self.command(&format!("set sub-file {}", mpv_quote(url)))
-    }
-
-    /// The tracks that are currently active (one per kind with a concrete id).
+    /// Create, apply `options` (e.g. `("ao", "null")`), and initialize.
     ///
-    /// mpv exposes the *full* track list via the `track-list` node property,
-    /// which requires node-walking FFI not yet added. This returns the
-    /// *active* track per kind, which suffices for the app's "current track" UI.
-    pub fn tracks(&self) -> Result<Vec<Track>, MpvError> {
-        let mut out = Vec::new();
-        for kind in [TrackKind::Audio, TrackKind::Video, TrackKind::Subtitle] {
-            let id = self.active_track(kind)?;
-            if id > 0 {
-                out.push(Track { kind, id });
+    /// Core startup can fail transiently under load (event queue full,
+    /// OOM); such failures are retried a couple of times with backoff.
+    /// Option errors (unknown option, bad format) fail immediately.
+    pub fn new_with_options(options: &[(&str, &str)]) -> Result<Self, MpvError> {
+        let mut backoff = 20u64;
+        let mut last = None;
+        for _ in 0..3 {
+            match Self::create_and_init(options) {
+                Ok(p) => return Ok(p),
+                Err(e) if Self::TRANSIENT_ERRORS.contains(&e.0) => {
+                    last = Some(e);
+                    std::thread::sleep(std::time::Duration::from_millis(backoff));
+                    backoff = (backoff * 2).min(80);
+                }
+                Err(e) => return Err(e),
             }
         }
-        Ok(out)
+        Err(last.expect("retry loop ran at least once"))
     }
 
-    // -- events ----------------------------------------------------------
-
-    /// Enable (`true`) or disable (`false`) an mpv event (e.g. `"end-file"`,
-    /// `"shutdown"`, `"file-loaded"`, `"tick"`).
-    pub fn request_event(&self, name: &str, enable: bool) -> Result<(), MpvError> {
-        let c_name = to_cstr(name)?;
-        let flag = if enable { 1 } else { 0 };
-        // SAFETY: valid handle; `c_name` is a valid NUL-terminated event name.
-        let rc = unsafe { ffi::mpv_request_event(self.handle, c_name.as_ptr(), flag) };
-        if rc != ffi::MPV_ERROR_SUCCESS {
-            return Err(MpvError::Status(rc));
+    fn create_and_init(options: &[(&str, &str)]) -> Result<Self, MpvError> {
+        let p = Self::uninitialized()?;
+        for (k, v) in options {
+            p.set_option(k, v)?;
         }
-        Ok(())
+        p.init()?;
+        Ok(p)
     }
 
-    /// Wait up to `timeout_secs` for the next event.
+    /// Apply an `name=value` option. Must be called before [`MpvPlayer::init`].
+    pub fn set_option(&self, name: &str, value: &str) -> Result<(), MpvError> {
+        Self::set_option_raw(self.handle, name, value)
+    }
+
+    /// Initialize the core (starts the decode / audio machinery).
+    pub fn init(&self) -> Result<(), MpvError> {
+        let rc = unsafe { ffi::mpv_initialize(self.handle) };
+        ffi::result_of(rc)
+    }
+
+    /// The raw handle (for the render context in [`super::render`]).
+    pub fn handle(&self) -> *mut mpv_handle {
+        self.handle
+    }
+
+    /// libmpv client API version (e.g. `1` for API v1).
+    pub fn client_api_version() -> u64 {
+        unsafe { ffi::mpv_client_api_version() }
+    }
+
+    /// Errors that indicate the core/client was momentarily busy rather
+    /// than a genuine failure; [`MpvPlayer::command`] retries these
+    /// (libmpv: `-1` event queue full, `-2` OOM, `-4` invalid parameter —
+    /// the last one is what `seek` returns while the core is still in a
+    /// load/startup transition).
+    const TRANSIENT_ERRORS: [i32; 3] = [
+        ffi::MPV_ERROR_EVENT_QUEUE_FULL,
+        ffi::MPV_ERROR_NOMEM,
+        ffi::MPV_ERROR_INVALID_PARAMETER,
+    ];
+
+    pub fn command(&self, args: &str) -> Result<(), MpvError> {
+        let ccmd = to_cstr(args)?;
+        // libmpv is asynchronous: right after a state transition (load,
+        // pause/resume, output (re)init) the client can reject a command
+        // with a transient error. Retry a bounded number of times with
+        // backoff; a genuine failure fails fast with a different code and
+        // is never retried.
+        let mut backoff = 10u64;
+        let mut rc = -1;
+        for _ in 0..4 {
+            rc = unsafe { ffi::mpv_command_string(self.handle, ccmd.as_ptr()) };
+            if rc >= 0 || !Self::TRANSIENT_ERRORS.contains(&rc) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(backoff));
+            backoff = (backoff * 2).min(50);
+        }
+        ffi::result_of(rc)
+    }
+
+    /// Load a file. `mode` is `"replace"` (default), `"append"`, etc.
+    pub fn loadfile(&self, path: &str, mode: &str) -> Result<(), MpvError> {
+        let cmd = format!("loadfile {} {}", mpv_quote(path), mode);
+        self.command(&cmd)
+    }
+
+    /// Wait until the core's playback state machine is fully up (`playtime`
+    /// available). Commands such as `seek` fail with
+    /// `MPV_ERROR_N_COMMAND` if issued during the startup transition after
+    /// `FILE_LOADED` (audio/video output setup still in flight); this
+    /// blocks until that window has closed.
     ///
-    /// Returns `None` on timeout (no event pending). Call [`request_event`]
-    /// first to register interest in specific events.
-    pub fn wait_event(&self, timeout_secs: f64) -> Option<MpvEvent> {
-        // SAFETY: `handle` is valid.
-        let ptr = unsafe { ffi::mpv_wait_event(self.handle, timeout_secs) };
-        if ptr.is_null() {
-            return None;
+    /// Returns `true` once ready, `false` on timeout (core still loading
+    /// or no playable stream).
+    pub fn wait_playback_ready(&self, timeout: f64) -> bool {
+        let deadline =
+            std::time::Instant::now() + std::time::Duration::from_secs_f64(timeout.max(0.0));
+        loop {
+            if self.time_pos().ok().flatten().is_some() {
+                return true;
+            }
+            if std::time::Instant::now() >= deadline {
+                return false;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
         }
-        // SAFETY: `ptr` is a valid `mpv_event`; we read only the stable
-        // `event_id` / `error` prefix (see `ffi::mpv_event_header`).
-        let ev = unsafe { &*ptr };
-        Some(MpvEvent {
-            event_id: ev.event_id,
-            error: ev.error,
-        })
     }
 
-    // -- property getters ------------------------------------------------
+    // -- transport ----------------------------------------------------------
 
-    fn get_double(&self, name: &str) -> Result<f64, MpvError> {
-        let c_name = to_cstr(name)?;
-        let mut val = 0.0_f64;
-        // SAFETY: valid handle; `c_name` valid; `val` is a writable f64.
+    pub fn play(&self) -> Result<(), MpvError> {
+        self.command("set pause no")
+    }
+    pub fn pause(&self) -> Result<(), MpvError> {
+        self.command("set pause yes")
+    }
+    pub fn toggle_pause(&self) -> Result<(), MpvError> {
+        self.command("cycle pause")
+    }
+    pub fn stop(&self) -> Result<(), MpvError> {
+        self.command("stop")
+    }
+
+    /// Seek by a relative amount (seconds; negative = backwards).
+    ///
+    /// Uses the binary `seek` property (f64) rather than a command string —
+    /// mpv parses command arguments with the C locale's `strtod`, which
+    /// mangles dotted decimals under non-C locales (e.g. `de_DE`).
+    pub fn seek_relative(&self, seconds: f64) -> Result<(), MpvError> {
+        self.set_property_double("seek", seconds)
+    }
+
+    /// Seek to an absolute position (seconds). Locale-safe (binary
+    /// `time-pos` property, see [`Self::seek_relative`]).
+    pub fn seek_absolute(&self, seconds: f64) -> Result<(), MpvError> {
+        self.set_property_double("time-pos", seconds)
+    }
+
+    // -- tracks -------------------------------------------------------------
+
+    /// List all tracks (video / audio / subtitle) of the loaded file.
+    pub fn tracks(&self) -> Result<Vec<Track>, MpvError> {
+        unsafe { ffi::track_list(self.handle) }
+            .map(|v| v.into_iter().map(|t| Track::from_ffi(&t)).collect())
+    }
+
+    /// Select the track `id` of `kind` (e.g. `TrackKind::Audio`, id `2`).
+    pub fn select_track(&self, kind: TrackKind, id: i64) -> Result<(), MpvError> {
+        let prop = kind.select_property();
+        self.command(&format!("set {prop} {id}"))
+    }
+
+    /// Set the external subtitle file (`sub-file` property).
+    pub fn set_subtitle_file(&self, path: &str) -> Result<(), MpvError> {
+        self.command(&format!("set sub-file {}", mpv_quote(path)))
+    }
+
+    /// Cycle to the next/previous track of `kind` (`direction` = `"up"`/`"down"`).
+    pub fn cycle_track(&self, kind: TrackKind, direction: &str) -> Result<(), MpvError> {
+        let prop = kind.select_property();
+        self.command(&format!("cycle {prop} {direction}"))
+    }
+
+    // -- properties ---------------------------------------------------------
+
+    pub fn get_property_flag(&self, name: &str) -> Result<Option<bool>, MpvError> {
+        let cname = to_cstr(name)?;
+        let mut v: i32 = 0;
         let rc = unsafe {
             ffi::mpv_get_property(
                 self.handle,
-                c_name.as_ptr(),
+                cname.as_ptr(),
+                ffi::MPV_FORMAT_FLAG,
+                &mut v as *mut _ as *mut std::os::raw::c_void,
+            )
+        };
+        match ffi::result_of(rc) {
+            Ok(()) => Ok(Some(v != 0)),
+            Err(_) => Ok(None),
+        }
+    }
+
+    pub fn get_property_double(&self, name: &str) -> Result<Option<f64>, MpvError> {
+        let cname = to_cstr(name)?;
+        let mut v: f64 = 0.0;
+        let rc = unsafe {
+            ffi::mpv_get_property(
+                self.handle,
+                cname.as_ptr(),
                 ffi::MPV_FORMAT_DOUBLE,
-                &mut val as *mut f64 as *mut c_void,
+                &mut v as *mut _ as *mut std::os::raw::c_void,
             )
         };
-        if rc != ffi::MPV_ERROR_SUCCESS {
-            return Err(MpvError::Status(rc));
+        match ffi::result_of(rc) {
+            Ok(()) => Ok(Some(v)),
+            Err(_) => Ok(None),
         }
-        Ok(val)
     }
 
-    fn get_int64(&self, name: &str) -> Result<i64, MpvError> {
-        let c_name = to_cstr(name)?;
-        let mut val = 0_i64;
-        // SAFETY: valid handle; `c_name` valid; `val` is a writable i64.
+    pub fn get_property_string(&self, name: &str) -> Result<Option<String>, MpvError> {
+        unsafe { ffi::get_property_string(self.handle, name) }
+    }
+
+    pub fn set_property_string(&self, name: &str, value: &str) -> Result<(), MpvError> {
+        unsafe { ffi::set_property_string(self.handle, name, value) }
+    }
+
+    pub fn set_property_double(&self, name: &str, value: f64) -> Result<(), MpvError> {
+        let cname = to_cstr(name)?;
         let rc = unsafe {
-            ffi::mpv_get_property(
+            ffi::mpv_set_property(
                 self.handle,
-                c_name.as_ptr(),
-                ffi::MPV_FORMAT_INT64,
-                &mut val as *mut i64 as *mut c_void,
+                cname.as_ptr(),
+                ffi::MPV_FORMAT_DOUBLE,
+                &value as *const f64 as *const std::os::raw::c_void,
             )
         };
-        if rc != ffi::MPV_ERROR_SUCCESS {
-            return Err(MpvError::Status(rc));
-        }
-        Ok(val)
+        ffi::result_of(rc)
     }
 
-    fn get_bool(&self, name: &str) -> Result<bool, MpvError> {
-        self.get_int64(name).map(|v| v != 0)
+    pub fn set_property_flag(&self, name: &str, value: bool) -> Result<(), MpvError> {
+        let cname = to_cstr(name)?;
+        let v = value as i32;
+        let rc = unsafe {
+            ffi::mpv_set_property(
+                self.handle,
+                cname.as_ptr(),
+                ffi::MPV_FORMAT_FLAG,
+                &v as *const i32 as *const std::os::raw::c_void,
+            )
+        };
+        ffi::result_of(rc)
+    }
+
+    // -- common state (sugar over the generic accessors) --------------------
+
+    pub fn is_paused(&self) -> Result<Option<bool>, MpvError> {
+        self.get_property_flag("pause")
+    }
+    pub fn time_pos(&self) -> Result<Option<f64>, MpvError> {
+        self.get_property_double("time-pos")
+    }
+    pub fn duration(&self) -> Result<Option<f64>, MpvError> {
+        self.get_property_double("duration")
+    }
+    /// Native mpv volume scale (0..=100).
+    pub fn volume(&self) -> Result<Option<f64>, MpvError> {
+        self.get_property_double("volume")
+    }
+    pub fn set_volume(&self, v: f64) -> Result<(), MpvError> {
+        self.set_property_double("volume", v)
+    }
+    pub fn muted(&self) -> Result<Option<bool>, MpvError> {
+        self.get_property_flag("mute")
+    }
+    pub fn set_muted(&self, m: bool) -> Result<(), MpvError> {
+        self.set_property_flag("mute", m)
+    }
+    pub fn speed(&self) -> Result<Option<f64>, MpvError> {
+        self.get_property_double("speed")
+    }
+    pub fn set_speed(&self, s: f64) -> Result<(), MpvError> {
+        self.set_property_double("speed", s)
+    }
+    /// `true` when a file is loaded and playing (not idle).
+    pub fn is_playing_file(&self) -> Result<Option<bool>, MpvError> {
+        self.get_property_flag("idle-active")
+            .map(|r| r.map(|idle| !idle))
+    }
+}
+
+/// Outcome of [`MpvPlayer::wait_file_loaded`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LoadOutcome {
+    /// `MPV_EVENT_FILE_LOADED` was observed.
+    Loaded,
+    /// `MPV_EVENT_END_FILE` was observed before the file could load
+    /// (bad URI, missing file, unsupported format, ...).
+    Failed,
+    /// No load event within the deadline.
+    Timeout,
+}
+
+impl LoadOutcome {
+    /// Human-readable description (for error messages).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            LoadOutcome::Loaded => "loaded",
+            LoadOutcome::Failed => "load failed (mpv end-file)",
+            LoadOutcome::Timeout => "timed out waiting for load event",
+        }
+    }
+}
+
+impl MpvPlayer {
+    /// Block until the current file finishes loading (or fails).
+    ///
+    /// Waits up to `timeout` seconds for `MPV_EVENT_FILE_LOADED` or
+    /// `MPV_EVENT_END_FILE`; other events are drained and discarded. Call
+    /// **after** `loadfile` so the load events being waited on are fresh.
+    ///
+    /// Note: `MPV_EVENT_IDLE` is deliberately **not** treated as terminal —
+    /// the core-start IDLE can be queued asynchronously and arrive right
+    /// after `loadfile`, which would otherwise look like a failed load.
+    ///
+    /// Consumes the events it sees; callers that need `FILE_LOADED`
+    /// (e.g. to refresh tracks) must do so before calling this.
+    pub fn wait_file_loaded(&self, timeout: f64) -> LoadOutcome {
+        let deadline =
+            std::time::Instant::now() + std::time::Duration::from_secs_f64(timeout.max(0.0));
+        loop {
+            let now = std::time::Instant::now();
+            if now >= deadline {
+                return LoadOutcome::Timeout;
+            }
+            let remaining = (deadline - now).as_secs_f64();
+            let Some(ev) = self.next_event(remaining) else {
+                return LoadOutcome::Timeout;
+            };
+            match ev.id {
+                ffi::MPV_EVENT_FILE_LOADED => return LoadOutcome::Loaded,
+                ffi::MPV_EVENT_END_FILE => return LoadOutcome::Failed,
+                ffi::MPV_EVENT_SHUTDOWN => return LoadOutcome::Timeout,
+                _ => continue,
+            }
+        }
     }
 }
 
 impl Drop for MpvPlayer {
     fn drop(&mut self) {
-        // SAFETY: we own `handle` (from mpv_create) and it is not yet destroyed.
-        unsafe { ffi::mpv_terminate_destroy(self.handle) };
+        if !self.handle.is_null() {
+            unsafe { ffi::mpv_terminate_destroy(self.handle) };
+            self.handle = std::ptr::null_mut();
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Event queue
+// ---------------------------------------------------------------------------
+
+impl MpvPlayer {
+    /// Wait up to `timeout` seconds for the next event.
+    ///
+    /// Returns `None` on timeout (i.e. `MPV_EVENT_NONE`). The returned
+    /// event's data is owned by the library and freed on the next call —
+    /// copy out anything you need (we already do: see `MpvEvent`).
+    ///
+    /// Must not be called concurrently from multiple threads on this handle.
+    pub fn next_event(&self, timeout: f64) -> Option<MpvEvent> {
+        let e = unsafe { ffi::mpv_wait_event(self.handle, timeout) };
+        if e.is_null() {
+            return None;
+        }
+        let ev = unsafe { &*e };
+        let mut end_reason = None;
+        if ev.event_id == ffi::MPV_EVENT_END_FILE {
+            let d = unsafe { &*(ev.data as *const ffi::mpv_event_end_file) };
+            end_reason = Some(d.reason);
+        }
+        Some(MpvEvent {
+            id: ev.event_id,
+            error: ev.error,
+            end_file_reason: end_reason,
+        })
+    }
+
+    /// Drain all currently queued events (non-blocking).
+    pub fn poll_events(&self) -> Vec<MpvEvent> {
+        let mut out = Vec::new();
+        while let Some(e) = self.next_event(0.0) {
+            if e.is_none() {
+                break;
+            }
+            out.push(e);
+        }
+        out
+    }
+
+    /// Interrupt a blocking [`MpvPlayer::next_event`] on this handle.
+    pub fn wakeup(&self) {
+        unsafe { ffi::mpv_wakeup(self.handle) };
     }
 }
 
 // ---------------------------------------------------------------------------
 // Tests
+//
+// These run against the real libmpv without any display or audio output:
+// a core created with `mpv_create()` starts idle, so property and event
+// access is fully functional headless.
 // ---------------------------------------------------------------------------
+
+/// A 1-second silent wav written by hand (no ffmpeg needed).
+fn silent_wav() -> std::path::PathBuf {
+    let path = std::env::temp_dir().join("mb_wait_load_test.wav");
+    if path.exists() {
+        return path;
+    }
+    // 100 samples of 16-bit silence, 8 kHz mono → tiny, always loadable.
+    let sample_rate: u32 = 8000;
+    let data = vec![0u8; 200];
+    let mut buf = Vec::with_capacity(44 + data.len());
+    buf.extend_from_slice(b"RIFF");
+    buf.extend_from_slice(&(36 + data.len() as u32).to_le_bytes());
+    buf.extend_from_slice(b"WAVE");
+    buf.extend_from_slice(b"fmt ");
+    buf.extend_from_slice(&16u32.to_le_bytes());
+    buf.extend_from_slice(&1u16.to_le_bytes()); // PCM
+    buf.extend_from_slice(&1u16.to_le_bytes()); // mono
+    buf.extend_from_slice(&sample_rate.to_le_bytes());
+    buf.extend_from_slice(&(sample_rate * 2).to_le_bytes());
+    buf.extend_from_slice(&2u16.to_le_bytes()); // block align
+    buf.extend_from_slice(&16u16.to_le_bytes()); // bits
+    buf.extend_from_slice(b"data");
+    buf.extend_from_slice(&(data.len() as u32).to_le_bytes());
+    buf.extend_from_slice(&data);
+    let _ = std::fs::write(&path, buf);
+    path
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// Pure-logic test: `mpv_quote` must correctly escape quotes and
-    /// backslashes for use inside an mpv command string.
     #[test]
-    fn mpv_quote_escapes_correctly() {
-        assert_eq!(mpv_quote("hello"), "\"hello\"");
+    fn quote_escapes_metacharacters() {
         assert_eq!(mpv_quote("a b"), "\"a b\"");
-        assert_eq!(mpv_quote("say \"hi\""), "\"say \\\"hi\\\"\"");
-        assert_eq!(mpv_quote("C:\\path"), "\"C:\\\\path\"");
-        assert_eq!(mpv_quote("a\"b\\c"), "\"a\\\"b\\\\c\"");
+        assert_eq!(mpv_quote("a\"b"), "\"a\\\"b\"");
+        assert_eq!(mpv_quote("a\\b"), "\"a\\\\b\"");
         assert_eq!(mpv_quote(""), "\"\"");
     }
 
-    /// Pure-logic test: `TrackKind::prop` maps to the correct mpv property name.
     #[test]
-    fn track_kind_prop() {
-        assert_eq!(TrackKind::Audio.prop(), "aid");
-        assert_eq!(TrackKind::Video.prop(), "vid");
-        assert_eq!(TrackKind::Subtitle.prop(), "sid");
+    fn track_kind_mapping_roundtrip() {
+        assert_eq!(TrackKind::from_mpv("video"), TrackKind::Video);
+        assert_eq!(TrackKind::from_mpv("audio"), TrackKind::Audio);
+        assert_eq!(TrackKind::from_mpv("sub"), TrackKind::Sub);
+        assert_eq!(TrackKind::from_mpv("weird"), TrackKind::Other);
+        assert_eq!(TrackKind::Video.as_mpv(), "video");
+        assert_eq!(TrackKind::Audio.select_property(), "aid");
+        assert_eq!(TrackKind::Video.select_property(), "vid");
+        assert_eq!(TrackKind::Sub.select_property(), "sid");
     }
 
-    /// Pure-logic test: `MpvEvent` helpers match their event-id constants.
     #[test]
-    fn mpv_event_helpers() {
-        let end = MpvEvent {
-            event_id: ffi::MPV_EVENT_END_FILE,
-            error: 0,
-        };
-        assert!(end.is_end_file());
-        assert!(!end.is_shutdown());
-        assert!(!end.is_file_loaded());
-        assert!(end.ok());
-
-        let shutdown = MpvEvent {
-            event_id: ffi::MPV_EVENT_SHUTDOWN,
-            error: 0,
-        };
-        assert!(shutdown.is_shutdown());
-        assert!(!shutdown.is_end_file());
-
-        let err_event = MpvEvent {
-            event_id: ffi::MPV_EVENT_END_FILE,
-            error: -1,
-        };
-        assert!(!err_event.ok());
+    fn client_api_version_is_positive() {
+        assert!(MpvPlayer::client_api_version() > 0);
     }
 
-    /// Pure-logic test: `to_cstr` rejects strings with interior NUL bytes.
     #[test]
-    fn to_cstr_rejects_nul_bytes() {
-        assert!(to_cstr("hello").is_ok());
-        assert!(to_cstr("has\0ul").is_err());
+    fn create_init_and_drop() {
+        let p = MpvPlayer::new().expect("core should initialize headless");
+        assert!(!p.handle().is_null());
+        drop(p);
     }
 
-    // NOTE: Runtime tests that call into libmpv (create/initialize/property
-    // queries) are intentionally not `#[test]`-gated in this environment
-    // because libmpv 0.41 segfaults inside the Rust test harness (which links
-    // gstreamer, wgpu, iced, etc.) even though the identical call sequence
-    // works in a standalone binary. See the probe in `target/probe/mpv_probe2.rs`
-    // and the plan document Appendix B for details. The ABI shape is verified
-    // by `ffi::tests::abi_struct_layout` above, and the full runtime path can
-    // be validated by running the standalone probe or the app itself.
+    #[test]
+    fn pause_toggle_and_properties() {
+        let p = MpvPlayer::new().expect("init");
+        p.pause().expect("pause");
+        assert_eq!(p.is_paused().ok().flatten(), Some(true));
+        p.play().expect("play");
+        assert_eq!(p.is_paused().ok().flatten(), Some(false));
+        p.toggle_pause().expect("toggle");
+        assert_eq!(p.is_paused().ok().flatten(), Some(true));
+        p.toggle_pause().expect("toggle back");
+        assert_eq!(p.is_paused().ok().flatten(), Some(false));
+    }
+
+    #[test]
+    fn volume_mute_speed_roundtrip() {
+        let p = MpvPlayer::new().expect("init");
+        p.set_volume(42.0).expect("set volume");
+        let v = p.volume().ok().flatten();
+        assert!(v.is_some() && (v.unwrap() - 42.0).abs() < 0.5);
+
+        p.set_muted(true).expect("mute");
+        assert_eq!(p.muted().ok().flatten(), Some(true));
+        p.set_muted(false).expect("unmute");
+        assert_eq!(p.muted().ok().flatten(), Some(false));
+
+        p.set_speed(1.5).expect("set speed");
+        let s = p.speed().ok().flatten();
+        assert!(s.is_some() && (s.unwrap() - 1.5).abs() < 0.01);
+    }
+
+    #[test]
+    fn property_unavailable_returns_none() {
+        let p = MpvPlayer::new().expect("init");
+        // No file loaded: time-pos / duration are unavailable.
+        assert_eq!(p.time_pos().ok().flatten(), None);
+        assert_eq!(p.duration().ok().flatten(), None);
+    }
+
+    #[test]
+    fn tracks_empty_or_unavailable_when_idle() {
+        let p = MpvPlayer::new().expect("init");
+        match p.tracks() {
+            Ok(list) => assert!(list.is_empty()),
+            // Some builds report the property as unavailable while idle.
+            Err(MpvError(e)) => {
+                assert!(
+                    e == ffi::MPV_ERROR_PROPERTY_UNAVAILABLE
+                        || e == ffi::MPV_ERROR_PROPERTY_NOT_FOUND,
+                    "unexpected error: {e}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn next_event_returns_none_on_timeout() {
+        let p = MpvPlayer::new().expect("init");
+        let ev = p.next_event(0.0);
+        assert!(ev.map(|e| e.is_none()).unwrap_or(true));
+        let drained = p.poll_events();
+        assert!(drained.iter().all(|e| !e.is_none()));
+    }
+
+    #[test]
+    fn wait_file_loaded_reports_loaded() {
+        let p = MpvPlayer::new().expect("init");
+        p.poll_events();
+        let path = silent_wav();
+        assert!(
+            p.loadfile(path.to_str().expect("path"), "replace").is_ok(),
+            "loadfile command must be accepted"
+        );
+        assert_eq!(p.wait_file_loaded(5.0), LoadOutcome::Loaded);
+    }
+
+    #[test]
+    fn wait_file_loaded_reports_failure() {
+        let p = MpvPlayer::new().expect("init");
+        p.poll_events();
+        p.loadfile("/nonexistent/mb_no_such_file_xyz.mp4", "replace")
+            .expect("loadfile command is accepted even for bad paths");
+        assert_eq!(p.wait_file_loaded(5.0), LoadOutcome::Failed);
+    }
+
+    #[test]
+    fn wait_file_loaded_zero_timeout_returns_timeout() {
+        let p = MpvPlayer::new().expect("init");
+        p.poll_events();
+        assert_eq!(p.wait_file_loaded(0.0), LoadOutcome::Timeout);
+    }
+
+    #[test]
+    fn command_with_bad_name_errors() {
+        let p = MpvPlayer::new().expect("init");
+        let r = p.command("no-such-command-xyz");
+        assert!(r.is_err());
+    }
+
+    #[test]
+    fn set_option_before_init_rejects_bad_option() {
+        let p = MpvPlayer::uninitialized().expect("create");
+        // A guaranteed-unknown option must be rejected pre-init.
+        assert!(p.set_option("definitely-not-an-option-xyz", "1").is_err());
+        drop(p);
+    }
+}
+
+#[cfg(test)]
+mod concurrency {
+    use super::*;
+    use crate::mpv::render::SwRenderer;
+    use std::sync::atomic::{AtomicBool, Ordering as O};
+
+    /// Regression test for libmpv thread handling: two cores with active
+    /// software-render workers while `mpv_set_property`/`mpv_get_property`
+    /// are hammered from two additional threads. The property readback must
+    /// always match the value just set.
+    ///
+    /// Note on teardown: render workers must be joined **before** the core
+    /// is terminated — `mpv_terminate_destroy` while a worker is inside
+    /// `mpv_render_*` aborts inside libmpv.
+    #[test]
+    fn property_access_concurrent_with_rendering() {
+        let clip = std::env::temp_dir().join("mb_video_model_test.mp4");
+        if !clip.exists() {
+            let ok = std::process::Command::new("ffmpeg")
+                .args([
+                    "-y",
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    "testsrc=duration=2:size=320x240:rate=10",
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-c:v",
+                    "libx264",
+                    "-an",
+                ])
+                .arg(&clip)
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false);
+            if !ok {
+                eprintln!("skip: no ffmpeg and no test clip");
+                return;
+            }
+        }
+        let mut players = Vec::new();
+        let mut renderers = Vec::new();
+        for _ in 0..2 {
+            let p = MpvPlayer::new_with_options(&[("ao", "null")]).expect("init");
+            let r = SwRenderer::spawn(&p).expect("renderer");
+            p.pause().expect("pre");
+            p.loadfile(clip.to_string_lossy().as_ref(), "replace")
+                .expect("loadfile");
+            assert_eq!(p.wait_file_loaded(5.0), LoadOutcome::Loaded);
+            p.play().expect("play");
+            renderers.push(r);
+            players.push(p);
+        }
+        let fail = std::sync::Arc::new(AtomicBool::new(false));
+        let mut handles = Vec::new();
+        for p in &players {
+            let h = p.handle() as usize;
+            let f = std::sync::Arc::clone(&fail);
+            handles.push(std::thread::spawn(move || {
+                let h = h as *mut ffi::mpv_handle;
+                let name = std::ffi::CStr::from_bytes_with_nul(b"mute\0").unwrap();
+                for i in 0..30 {
+                    let want = (i % 2 == 0) as i32;
+                    let s = unsafe {
+                        ffi::mpv_set_property(
+                            h,
+                            name.as_ptr(),
+                            ffi::MPV_FORMAT_FLAG,
+                            &want as *const i32 as *mut std::os::raw::c_void,
+                        )
+                    };
+                    let mut got = 0i32;
+                    let r = unsafe {
+                        ffi::mpv_get_property(
+                            h,
+                            name.as_ptr(),
+                            ffi::MPV_FORMAT_FLAG,
+                            &mut got as *mut i32 as *mut std::os::raw::c_void,
+                        )
+                    };
+                    if s < 0 || r < 0 || got != want {
+                        f.store(true, O::SeqCst);
+                        return;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(2));
+                }
+            }));
+        }
+        for t in handles {
+            t.join().expect("hammer thread");
+        }
+        assert!(
+            !fail.load(O::SeqCst),
+            "concurrent property access corrupted state"
+        );
+        // Teardown: workers first, then cores.
+        for r in &mut renderers {
+            r.shutdown();
+        }
+        drop(renderers);
+        drop(players);
+    }
 }
