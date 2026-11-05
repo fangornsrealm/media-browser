@@ -30,6 +30,14 @@ bytemuck = "1.0"
 chrono = { version = "0.4", features = ["unstable-locales"] }
 dirs = "6.0.0"
 env_logger = "0.11"
+# duplo-rs: similarity engine for image/video duplicate search.
+# The git source below is patched by the local vendored copy (see [patch]
+# below), which carries fixes that are not yet in the upstream rev:
+#   - Store::decode field order (was OOM-kill on reading a persisted store)
+#   - Store::decode replacing (not appending to) the index buckets
+#   - present_pairs naming the KEEP file after the kept candidate
+# Pin to a release tag (and drop the patch) when these land upstream.
+duplo-rs = { git = "https://github.com/fangornsrealm/duplo-rs.git", rev = "1f2f3fbca4a6d5a4ba4d11b039ce14c462ff0227" }
 file-format = { version = "0.26.0", features = ["reader"] }
 freedesktop_entry_parser = "1.3"
 fs_extra = { git = "https://github.com/pop-os/fs_extra.git", rev = "7e7222e" }
@@ -55,7 +63,7 @@ open = "5.3.2"
 paste = "1.0"
 rayon = "1"
 regex = "1"
-rusqlite = { version = "0.33.0", features = ["bundled", "chrono"] }
+rusqlite = { version = "0.32.1", features = ["bundled", "chrono"] }
 rustc-hash = "2.1.0"
 serde = { version = "1", features = ["serde_derive"] }
 shlex = { version = "1.3" }
@@ -76,6 +84,7 @@ zbus = { version = "5", default-features = false, features = [
 # Compression
 bzip2 = { version = "0.5", optional = true }   #TODO: replace with pure Rust crate
 flate2 = "1.0"
+futures = "0.3"
 liblzma = { version = "0.3", optional = true } #TODO: replace with pure Rust crate
 tar = "0.4.43"
 # Internationalization
@@ -185,6 +194,12 @@ mime = { path = "vendor/window_clipboard/mime" }
 
 # [patch.'https://github.com/pop-os/smithay-clipboard']
 # smithay-clipboard = { path = "../smithay-clipboard" }
+
+# Vendored copy of duplo-rs (rev 1f2f3fb) with the image-store persistence
+# fixes listed above the dependency. The git dependency stays as the source
+# of truth for the version pin.
+[patch.'https://github.com/fangornsrealm/duplo-rs.git']
+duplo-rs = { path = "vendor/duplo-rs" }
 
 [package.metadata.deb]
 license-file = "LICENSE"

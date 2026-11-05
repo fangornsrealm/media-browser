@@ -488,6 +488,18 @@ impl App {
                     }
                 }
             }
+            NavMenuAction::SimilarImageScan(entity) => {
+                return self.nav_similar_scan(
+                    crate::similar::SimilarKind::Image,
+                    entity,
+                );
+            }
+            NavMenuAction::SimilarVideoScan(entity) => {
+                return self.nav_similar_scan(
+                    crate::similar::SimilarKind::Video,
+                    entity,
+                );
+            }
             NavMenuAction::RemoveFromSidebar(entity) => {
                 if let Some(FavoriteIndex(favorite_i)) =
                     self.nav_model.data::<FavoriteIndex>(entity)

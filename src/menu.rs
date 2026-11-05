@@ -146,6 +146,16 @@ pub fn context_menu<'a>(
                         )
                         .into(),
                     );
+                    children.push(
+                        menu_item(fl!("similar-image-scan"), Action::SimilarImageScan)
+                            .into(),
+                    );
+                    if crate::similar::ffmpeg_available() {
+                        children.push(
+                            menu_item(fl!("similar-video-scan"), Action::SimilarVideoScan)
+                                .into(),
+                        );
+                    }
                 }
                 children.push(divider::horizontal::light().into());
                 children.push(menu_item(fl!("rename"), Action::Rename).into());
@@ -453,32 +463,48 @@ pub fn menu_bar<'a>(
         }
     });
 
+    // The video scan needs ffmpeg at runtime; hide the menu entry when it
+    // is not installed (same rule as the context menu).
+    let mut file_menu_items = vec![
+        menu::Item::Button(fl!("new-folder"), None, Action::NewFolder),
+        menu::Item::Button(fl!("open"), None, Action::Open),
+        menu::Item::Divider,
+        menu::Item::Button(fl!("rename"), None, Action::Rename),
+        menu::Item::Divider,
+        menu::Item::Button(
+            fl!("recursive-scan-directories"),
+            None,
+            Action::RecursiveScanDirectories,
+        ),
+        menu::Item::Divider,
+        menu::Item::Button(
+            fl!("similar-image-scan"),
+            None,
+            Action::SimilarImageScan,
+        ),
+    ];
+    if crate::similar::ffmpeg_available() {
+        file_menu_items.push(menu::Item::Button(
+            fl!("similar-video-scan"),
+            None,
+            Action::SimilarVideoScan,
+        ));
+    }
+    file_menu_items.extend([
+        menu::Item::Button(fl!("search-context"), None, Action::SearchDB),
+        menu::Item::Divider,
+        menu::Item::Button(fl!("add-to-sidebar"), None, Action::AddToSidebar),
+        menu::Item::Button(fl!("add-new-tag"), None, Action::AddTagToSidebar),
+        menu::Item::Divider,
+        menu::Item::Button(fl!("move-to-trash"), None, Action::MoveToTrash),
+        menu::Item::Divider,
+        menu::Item::Button(fl!("quit"), None, Action::WindowClose),
+    ]);
+
     MenuBar::new(vec![
         menu::Tree::with_children(
             widget::RcElementWrapper::new(Element::from(menu::root(fl!("file")))),
-            menu::items(
-                key_binds,
-                vec![
-                    menu::Item::Button(fl!("new-folder"), None, Action::NewFolder),
-                    menu::Item::Button(fl!("open"), None, Action::Open),
-                    menu::Item::Divider,
-                    menu::Item::Button(fl!("rename"), None, Action::Rename),
-                    menu::Item::Divider,
-                    menu::Item::Button(
-                        fl!("recursive-scan-directories"),
-                        None,
-                        Action::RecursiveScanDirectories,
-                    ),
-                    menu::Item::Button(fl!("search-context"), None, Action::SearchDB),
-                    menu::Item::Divider,
-                    menu::Item::Button(fl!("add-to-sidebar"), None, Action::AddToSidebar),
-                    menu::Item::Button(fl!("add-new-tag"), None, Action::AddTagToSidebar),
-                    menu::Item::Divider,
-                    menu::Item::Button(fl!("move-to-trash"), None, Action::MoveToTrash),
-                    menu::Item::Divider,
-                    menu::Item::Button(fl!("quit"), None, Action::WindowClose),
-                ],
-            ),
+            menu::items(key_binds, file_menu_items),
         ),
         menu::Tree::with_children(
             widget::RcElementWrapper::new(Element::from(menu::root(fl!("edit")))),

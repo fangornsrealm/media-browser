@@ -268,6 +268,30 @@ metadata-delete = Metadaten / Datenbank löschen
 metadata-details = {$items} Dateien mit insgesamt {$size} MB
     im Verzeichnis {$location}
 
+### Ähnlichkeitssuche
+similar-search = Ähnlichkeitssuche
+similar-image-scan = Ähnliche Bilder suchen
+similar-video-scan = Ähnliche Videos suchen
+similar-image-sensitivity = Bildempfindlichkeit
+similar-video-sensitivity = Videoempfindlichkeit
+similar-sensitivity-desc = Höhere Werte finden mehr, weniger ähnliche Treffer
+similar-video-interval = Sekunden zwischen Standbildern
+similar-video-min-sequence = Mindestanzahl aufeinanderfolgender Standbilder
+similar-video-threads = Standbild-Threads
+similar-video-cache = Kandidaten-Cache-Größe
+similar-video-cache-desc = ~100 MB RAM pro Kandidat; unter einem Drittel des Systemspeichers halten
+similar-recursive = Unterverzeichnisse einbeziehen
+similar-delete-image-store = Bild-Ähnlichkeitsdatenbank löschen
+similar-delete-video-store = Video-Ähnlichkeitsdatenbank löschen
+similar-scan-running = Ähnliche {$media} werden gesucht…
+similar-image-scan-complete = {$count} ähnliche Bildpaare gefunden
+similar-video-scan-complete = {$count} ähnliche Videos gefunden
+similar-scan-cancelled = Ähnlichkeitssuche abgebrochen
+similar-open-results = Ergebnisse öffnen
+similar-ffmpeg-missing = ffmpeg wird für die Video-Ähnlichkeitssuche benötigt, wurde aber nicht gefunden.
+similar-media-images = Bilder
+similar-media-videos = Videos
+
 ### Appearance
 appearance = Aussehen
 theme = Thema

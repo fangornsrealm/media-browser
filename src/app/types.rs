@@ -97,6 +97,8 @@ pub enum Action {
     SelectAll,
     SetSort(HeadingOptions, bool),
     Settings,
+    SimilarImageScan,
+    SimilarVideoScan,
     //SubtitleToggle,
     TabClose,
     TabNew,
@@ -168,6 +170,8 @@ impl Action {
                 Message::TabMessage(entity_opt, tab::Message::SetSort(*sort, *dir))
             }
             Action::Settings => Message::ToggleContextPage(ContextPage::Settings),
+            Action::SimilarImageScan => Message::SimilarImageScan(entity_opt),
+            Action::SimilarVideoScan => Message::SimilarVideoScan(entity_opt),
             Action::SeekBackward => Message::SeekBackward,
             Action::SeekForward => Message::SeekForward,
             //Action::SubtitleToggle => Message::SubtitleToggle,
@@ -228,6 +232,8 @@ pub enum NavMenuAction {
     RecursiveScanDirectories(segmented_button::Entity),
     RemoveFromSidebar(segmented_button::Entity),
     RemoveTagFromSidebar(segmented_button::Entity),
+    SimilarImageScan(segmented_button::Entity),
+    SimilarVideoScan(segmented_button::Entity),
     EmptyTrash,
 }
 
@@ -362,6 +368,13 @@ pub enum Message {
     SearchCommit,
     SeekBackward,
     SeekForward,
+    SimilarCancel,
+    SimilarConfig(crate::similar::SimilarConfig),
+    SimilarDeleteStore(crate::similar::SimilarKind),
+    SimilarImageScan(Option<Entity>),
+    SimilarOpenResults(PathBuf),
+    SimilarProgress(crate::similar::SimilarProgress),
+    SimilarVideoScan(Option<Entity>),
     SetShowDetails(bool),
     SkipToPosition(f64),
     SystemThemeModeChange(cosmic_theme::ThemeMode),

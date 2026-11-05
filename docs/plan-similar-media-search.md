@@ -749,23 +749,64 @@ which is used elsewhere in the codebase, e.g. `delete_metadata` in `scan.rs`).
 ## 14. Files to create / modify (checklist)
 
 ### New files
-- [ ] `src/similar/mod.rs`
-- [ ] `src/similar/config.rs`
-- [ ] `src/similar/image_scan.rs`
-- [ ] `src/similar/video_scan.rs`
-- [ ] `src/similar/progress.rs`
-- [ ] `src/similar/errors.rs`
-- [ ] `src/app/similar.rs` (message handlers)
+- [x] `src/similar/mod.rs`
+- [x] `src/similar/config.rs`
+- [x] `src/similar/image_scan.rs`
+- [x] `src/similar/video_scan.rs`
+- [x] `src/similar/progress.rs`
+- [x] `src/similar/errors.rs`
+- [x] `src/app/similar.rs` (message handlers)
 
 ### Modified files
-- [ ] `Cargo.toml` — add `duplo-rs` dependency
-- [ ] `src/lib.rs` — add `mod similar;`
-- [ ] `src/app/mod.rs` — add `mod similar;` to the app module list; add `similar_cancel_flag` field to `App`
-- [ ] `src/app/types.rs` — add `Message::Similar*` variants; add `SimilarKind` enum
-- [ ] `src/menu.rs` — add "Find Similar Images" / "Find Similar Videos" context-menu items
-- [ ] `src/app/mod.rs` (`fn update`) — dispatch new `Message::Similar*` arms
-- [ ] `src/config.rs` — add `similar: SimilarConfig` to `Config`
-- [ ] `i18n/en/media_browser.ftl` — add similarity search strings
-- [ ] `i18n/de/media_browser.ftl` — add German strings
-- [ ] `i18n/sv/media_browser.ftl` — add Swedish strings
-- [ ] `debian/control` or packaging — ensure `ffmpeg` is in `Recommends`
+- [x] `Cargo.toml` — add `duplo-rs` dependency
+- [x] `src/lib.rs` — add `mod similar;`
+- [x] `src/app/mod.rs` — add `mod similar;` to the app module list; add `similar_cancel_flag` field to `App`
+- [x] `src/app/types.rs` — add `Message::Similar*` variants; add `SimilarKind` enum
+- [x] `src/menu.rs` — add "Find Similar Images" / "Find Similar Videos" context-menu items
+- [x] `src/app/mod.rs` (`fn update`) — dispatch new `Message::Similar*` arms
+- [x] `src/config.rs` — add `similar: SimilarConfig` to `Config`
+- [x] `i18n/en/media_browser.ftl` — add similarity search strings
+- [x] `i18n/de/media_browser.ftl` — add German strings
+- [x] `i18n/sv/media_browser.ftl` — add Swedish strings
+- [x] `debian/control` or packaging — ensure `ffmpeg` is in `Recommends` (it is in `Depends`, which is stronger)
+
+---
+
+## 15. Implementation notes (status)
+
+Implemented end-to-end; all plan checkboxes above are complete.
+
+- **duplo-rs is vendored** at `vendor/duplo-rs` (rev `1f2f3fb`, applied via
+  `[patch]` in `Cargo.toml`, following the existing `vendor/window_clipboard`
+  convention). The vendored copy carries three fixes that are not yet in
+  upstream:
+  1. `Store::decode` read the index count and sensitivity in the **opposite
+     order** from `Store::encode`. Reading back a persisted image store
+     therefore turned the index count into a ~1.4e19 loop bound and grew
+     `indices` until the process was OOM-killed. Decode order is fixed and a
+     `count != INDICESMAX` guard rejects corrupt streams.
+  2. `Store::decode` **appended** the loaded index buckets to the buckets a
+     fresh `Store::new` already prefilled, leaving the loaded ones
+     unreachable from `query`. Decode now replaces them.
+  3. `files::present_pairs` named the `KEEP` file after the `REMOVE`
+     candidate (both pair files had the same name). Fixed.
+
+  When these land in `duplo-rs` upstream, bump the pinned rev and delete the
+  vendored copy + `[patch]` entry.
+
+- **Video scan pipeline** differs from the demo on purpose: parsing stays
+  parallel (`video_num_threads` ffmpeg workers), but commit + match are
+  serial, with matching done **after** all new videos are committed. The
+  demo's query-while-parsing pipeline races itself (a video can be queried
+  before its twin is added, silently missing same-run pairs).
+
+- **Renamed copies** (plan §4.5): the copy is not added to the store again,
+  but its match report is still produced — the user needs to see that a new
+  file duplicates a stored one. A re-scan regenerates that report (artifact
+  overwrite, no new store entry).
+
+- **Upstream `duplo-rs` also contains** an unrelated copy-paste smell worth
+  fixing there: `Store::decode` does not bail out when
+  `restore_hash_string_usize` fails mid-stream (it keeps reading at a
+  shifted offset). Not reachable with well-formed streams; noted for the
+  upstream PR.

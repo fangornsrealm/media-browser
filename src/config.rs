@@ -101,6 +101,7 @@ pub struct Config {
     pub tags: Vec<crate::sql::Tag>,
     pub show_details: bool,
     pub tab: MediaTabConfig,
+    pub similar: crate::similar::SimilarConfig,
 }
 
 impl Config {
@@ -149,6 +150,7 @@ impl Default for Config {
             tags: Vec::new(),
             show_details: false,
             tab: MediaTabConfig::default(),
+            similar: crate::similar::SimilarConfig::default(),
         }
     }
 }

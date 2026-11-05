@@ -111,6 +111,7 @@ mod operations;
 mod ops;
 mod scan;
 mod search;
+mod similar;
 mod tabs;
 mod trash;
 mod types;
@@ -169,6 +170,8 @@ pub struct App {
     tab_dnd_hover: Option<(Entity, Instant)>,
     nav_drag_id: DragId,
     tab_drag_id: DragId,
+    similar_cancel_flag: Option<Arc<std::sync::atomic::AtomicBool>>,
+    similar_scan: Option<similar::SimilarScanState>,
     sql_connection: std::sync::Arc<std::sync::Mutex<rusqlite::Connection>>,
 }
 
@@ -1054,6 +1057,140 @@ impl App {
             )),
         );
 
+        let similar_base = self.config.similar.clone();
+        let similar_section = widget::settings::section()
+            .title(fl!("similar-search"))
+            .add({
+                let base = similar_base.clone();
+                widget::settings::item::builder(fl!("similar-image-sensitivity"))
+                    .description(fl!("similar-sensitivity-desc"))
+                    .control(widget::slider(
+                        0..=100,
+                        base.image_sensitivity,
+                        move |value: u8| {
+                            let mut cfg = base.clone();
+                            cfg.image_sensitivity = value;
+                            Message::SimilarConfig(cfg)
+                        },
+                    ))
+            })
+            .add({
+                let base = similar_base.clone();
+                widget::settings::item::builder(fl!("similar-video-sensitivity"))
+                    .description(fl!("similar-sensitivity-desc"))
+                    .control(widget::slider(
+                        0..=100,
+                        base.video_sensitivity,
+                        move |value: u8| {
+                            let mut cfg = base.clone();
+                            cfg.video_sensitivity = value;
+                            Message::SimilarConfig(cfg)
+                        },
+                    ))
+            })
+            .add({
+                let base = similar_base.clone();
+                widget::settings::item::builder(fl!("similar-video-interval"))
+                    .control(widget::spin_button(
+                        base.video_screenshot_interval.to_string(),
+                        fl!("similar-video-interval"),
+                        base.video_screenshot_interval,
+                        5,
+                        1,
+                        3600,
+                        move |value: u32| {
+                            let mut cfg = base.clone();
+                            cfg.video_screenshot_interval = value;
+                            Message::SimilarConfig(cfg)
+                        },
+                    ))
+            })
+            .add({
+                let base = similar_base.clone();
+                widget::settings::item::builder(fl!("similar-video-min-sequence"))
+                    .control(widget::spin_button(
+                        base.video_min_sequence.to_string(),
+                        fl!("similar-video-min-sequence"),
+                        base.video_min_sequence,
+                        1,
+                        1,
+                        100,
+                        move |value: u32| {
+                            let mut cfg = base.clone();
+                            cfg.video_min_sequence = value;
+                            Message::SimilarConfig(cfg)
+                        },
+                    ))
+            })
+            .add({
+                let base = similar_base.clone();
+                widget::settings::item::builder(fl!("similar-video-threads"))
+                    .control(widget::spin_button(
+                        base.video_num_threads.to_string(),
+                        fl!("similar-video-threads"),
+                        base.video_num_threads,
+                        1,
+                        1,
+                        16,
+                        move |value: u32| {
+                            let mut cfg = base.clone();
+                            cfg.video_num_threads = value;
+                            Message::SimilarConfig(cfg)
+                        },
+                    ))
+            })
+            .add({
+                let base = similar_base.clone();
+                widget::settings::item::builder(fl!("similar-video-cache"))
+                    .description(fl!("similar-video-cache-desc"))
+                    .control(widget::spin_button(
+                        base.video_max_cache.to_string(),
+                        fl!("similar-video-cache"),
+                        base.video_max_cache,
+                        10,
+                        10,
+                        2000,
+                        move |value: usize| {
+                            let mut cfg = base.clone();
+                            cfg.video_max_cache = value;
+                            Message::SimilarConfig(cfg)
+                        },
+                    ))
+            })
+            .add({
+                let base = similar_base.clone();
+                widget::settings::item::builder(fl!("similar-recursive"))
+                    .control(
+                        widget::checkbox(base.recursive).on_toggle(move |checked: bool| {
+                            let mut cfg = base.clone();
+                            cfg.recursive = checked;
+                            Message::SimilarConfig(cfg)
+                        }),
+                    )
+            })
+            .add(
+                widget::settings::item::builder(fl!("similar-delete-image-store"))
+                    .control(
+                        widget::button::custom(
+                            widget::icon::from_name("user-trash-symbolic").size(16),
+                        )
+                        .on_press(Message::SimilarDeleteStore(
+                            crate::similar::SimilarKind::Image,
+                        )),
+                    ),
+            )
+            .add(
+                widget::settings::item::builder(fl!("similar-delete-video-store"))
+                    .control(
+                        widget::button::custom(
+                            widget::icon::from_name("user-trash-symbolic").size(16),
+                        )
+                        .on_press(Message::SimilarDeleteStore(
+                            crate::similar::SimilarKind::Video,
+                        )),
+                    ),
+            );
+
         if let Ok(metadata_item) =
             crate::parsers::item_from_path(metadata_path, IconSizes::default())
         {
@@ -1092,20 +1229,37 @@ impl App {
                                 );
                             widget::column::with_children(vec![
                                 appearance_section.into(),
+                                similar_section.into(),
                                 metadata_section.into(),
                             ])
                             .into()
                         } else {
-                            widget::column::with_children(vec![appearance_section.into()]).into()
+                            widget::column::with_children(vec![
+                                appearance_section.into(),
+                                similar_section.into(),
+                            ])
+                            .into()
                         }
                     } else {
-                        widget::column::with_children(vec![appearance_section.into()]).into()
+                        widget::column::with_children(vec![
+                            appearance_section.into(),
+                            similar_section.into(),
+                        ])
+                        .into()
                     }
                 }
-                _ => widget::column::with_children(vec![appearance_section.into()]).into(),
+                _ => widget::column::with_children(vec![
+                    appearance_section.into(),
+                    similar_section.into(),
+                ])
+                .into(),
             }
         } else {
-            widget::column::with_children(vec![appearance_section.into()]).into()
+            widget::column::with_children(vec![
+                appearance_section.into(),
+                similar_section.into(),
+            ])
+            .into()
         }
     }
 
@@ -2358,10 +2512,23 @@ impl Application for App {
             tab_dnd_hover: None,
             nav_drag_id: DragId::new(),
             tab_drag_id: DragId::new(),
+            similar_cancel_flag: None,
+            similar_scan: None,
             sql_connection: std::sync::Arc::new(std::sync::Mutex::new(sql_conmnection)),
         };
         app.tab_model_id = app.tab_model.active();
         let mut commands = vec![app.update_config()];
+
+        // ffmpeg is only needed for video similarity search; warn once at
+        // startup if it is missing so the menu item is not a surprise.
+        if !crate::similar::ffmpeg_available() {
+            commands.push(cosmic::task::batch([app.toasts.push(
+                cosmic::widget::toaster::Toast::new(crate::fl!(
+                    "similar-ffmpeg-missing"
+                ))
+                .duration(cosmic::widget::toaster::Duration::Long),
+            )]));
+        }
 
         for location in flags.locations {
             commands.push(app.open_tab(location, true, None));
@@ -2454,6 +2621,18 @@ impl Application for App {
                             None,
                             NavMenuAction::RecursiveScanDirectories(entity),
                         ));
+                        items.push(cosmic::widget::menu::Item::Button(
+                            fl!("similar-image-scan"),
+                            None,
+                            NavMenuAction::SimilarImageScan(entity),
+                        ));
+                        if crate::similar::ffmpeg_available() {
+                            items.push(cosmic::widget::menu::Item::Button(
+                                fl!("similar-video-scan"),
+                                None,
+                                NavMenuAction::SimilarVideoScan(entity),
+                            ));
+                        }
                     }
                     if favorite_index_opt.is_some() {
                         items.push(cosmic::widget::menu::Item::Button(
@@ -2620,6 +2799,17 @@ impl Application for App {
             Message::Next(entity_opt) => self.next(entity_opt),
             Message::RecursiveScanDirectories(entity_opt) => {
                 self.recursive_scan_directories(entity_opt)
+            }
+            Message::SimilarCancel => self.similar_cancel(),
+            Message::SimilarConfig(config) => self.similar_config(config),
+            Message::SimilarDeleteStore(kind) => self.similar_delete_store(kind),
+            Message::SimilarImageScan(entity_opt) => {
+                self.similar_image_scan(entity_opt)
+            }
+            Message::SimilarOpenResults(path) => self.similar_open_results(path),
+            Message::SimilarProgress(progress) => self.similar_progress(progress),
+            Message::SimilarVideoScan(entity_opt) => {
+                self.similar_video_scan(entity_opt)
             }
             Message::AudioMessage(audio_message) => self.audio_message(audio_message),
             Message::Config(config) => self.config(config),
@@ -3551,7 +3741,7 @@ impl Application for App {
     }
 
     fn footer(&self) -> Option<Element<'_, Message>> {
-        if self.progress_operations.is_empty() {
+        if self.progress_operations.is_empty() && self.similar_scan.is_none() {
             return None;
         }
 
@@ -3608,7 +3798,45 @@ impl Application for App {
         let progress_bar =
             widget::progress_bar::determinate_linear(total_progress).girth(progress_bar_height);
 
-        let container = widget::layer_container(widget::column::with_children(vec![
+        let mut children: Vec<Element<'_, Message>> = Vec::new();
+
+        // Similarity scan progress (own channel, outside the Operation
+        // system).
+        if let Some(scan) = &self.similar_scan {
+            let progress = if scan.total > 0 {
+                (scan.done as f32 / scan.total as f32).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            let title = fl!("similar-scan-running", media = scan.kind.media_name());
+            children.push(
+                widget::column::with_children(vec![
+                    widget::row::with_children(vec![
+                        widget::progress_bar::determinate_linear(progress)
+                            .girth(Length::Fixed(4.0))
+                            .into(),
+                        widget::tooltip(
+                            widget::button::icon(widget::icon::from_name(
+                                "window-close-symbolic",
+                            ))
+                            .on_press(Message::SimilarCancel)
+                            .padding(8),
+                            widget::text::body(fl!("cancel")),
+                            widget::tooltip::Position::Top,
+                        )
+                        .into(),
+                    ])
+                    .align_y(Alignment::Center)
+                    .into(),
+                    widget::text::body(title).into(),
+                ])
+                .into(),
+            );
+        }
+
+        if !self.progress_operations.is_empty() {
+        children.push(
+        widget::column::with_children(vec![
             widget::row::with_children(vec![
                 progress_bar.into(),
                 if all_paused {
@@ -3660,7 +3888,14 @@ impl Application for App {
             ])
             .align_y(Alignment::Center)
             .into(),
-        ]))
+            ])
+            .into(),
+        );
+        }
+
+        let container = widget::layer_container(
+            widget::column::with_children(children).spacing(space_s),
+        )
         .padding([8, space_xs])
         .layer(cosmic_theme::Layer::Primary);
 

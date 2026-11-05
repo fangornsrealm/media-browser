@@ -1,0 +1,37 @@
+[package]
+name = "duplo-rs"
+version = "0.1.0"
+edition = "2021"
+
+[[example]]
+name = "demo_similar_images"
+path = "examples/demo_similar_images.rs"
+
+[[example]]
+name = "demo_similar_videos"
+path = "examples/demo_similar_videos.rs"
+
+[dependencies]
+base64 = "0.22.1"
+build_html = "2.5.0"
+image = "0.25.5"
+imagesize = "0.13"
+hamming_rs = "0.2.22"
+log = { version = "0.4.22", features = [
+    "max_level_debug",
+    "release_max_level_warn",
+] }
+rand = "0.8.5"
+regex = "1.11.1"
+rusqlite = {version = "0.32.1", features = ["bundled"]}
+walkdir = "2.5.0"
+
+[dev-dependencies]
+dirs = "5.0.1"
+log = { version = "0.4.22", features = [
+    "max_level_debug",
+    "release_max_level_warn",
+] }
+simplelog = { version = "0.12.2", features = ["paris"] }
+clap = { version = "4.5.20", features = ["derive", "cargo"] }
+pbr = "1.1.1"

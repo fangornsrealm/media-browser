@@ -268,6 +268,30 @@ metadata-delete = Delete Metadata / Database
 metadata-details = {$items} Files with size {$size} MB
     at {$location}
 
+### Likhetssök
+similar-search = Likhetssök
+similar-image-scan = Hitta liknande bilder
+similar-video-scan = Hitta liknande videor
+similar-image-sensitivity = Bildkänslighet
+similar-video-sensitivity = Videokänslighet
+similar-sensitivity-desc = Högre värden hittar fler, mindre likt sammanfall
+similar-video-interval = Sekunder mellan skärmbilder
+similar-video-min-sequence = Minsta antal likadana i följd
+similar-video-threads = Skärmbildstrådar
+similar-video-cache = Kandidatcache storlek
+similar-video-cache-desc = ~100 MB RAM per kandidat; håll under en tredjedel av systemminnet
+similar-recursive = Inkludera underkataloger
+similar-delete-image-store = Rensa bildlikhetsdatabasen
+similar-delete-video-store = Rensa videolikhetsdatabasen
+similar-scan-running = Söker efter liknande {$media}…
+similar-image-scan-complete = Hittade {$count} liknande bildpar
+similar-video-scan-complete = Hittade {$count} liknande videor
+similar-scan-cancelled = Likhetssök avbruten
+similar-open-results = Öppna resultat
+similar-ffmpeg-missing = ffmpeg krävs för videosökning men hittades inte.
+similar-media-images = bilder
+similar-media-videos = videor
+
 ### Utseende
 appearance = Utseende
 theme = Tema

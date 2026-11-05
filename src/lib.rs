@@ -28,6 +28,7 @@ mod operation;
 pub mod parsers;
 pub mod pipeline;
 pub mod scanmetadata;
+pub mod similar;
 mod spawn_detached;
 pub mod sql;
 pub mod tab;
