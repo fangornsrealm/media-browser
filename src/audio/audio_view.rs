@@ -152,6 +152,13 @@ impl AudioView {
             return;
         }
         self.close();
+        // Cover art: the caller-provided path (e.g. the database record —
+        // embedded art extracted at scan time), otherwise a same-stem image
+        // next to the audio file; `Audio::new` falls back to the bundled
+        // dummy.
+        if self.posterpath_opt.is_none() {
+            self.posterpath_opt = crate::audio::coverart::cover_next_to(&audiopath);
+        }
         log::info!("Loading {}", audiopath);
         let audio = match crate::audio::audio::Audio::new(&audiopath, self.posterpath_opt.clone()) {
             Ok(ok) => ok,
@@ -242,14 +249,8 @@ impl AudioView {
                 let pathbuf = std::path::PathBuf::from(&path);
                 if let Ok(url) = url::Url::from_file_path(pathbuf) {
                     self.audiopath_opt = Some(url);
-                    let mut p = path.clone();
-                    p.push_str(".png");
-                    let poster = std::path::PathBuf::from(&p);
-                    if poster.is_file() {
-                        self.posterpath_opt = Some(p);
-                    } else {
-                        self.posterpath_opt = None;
-                    }
+                    // The poster path is caller-provided (database record);
+                    // `load()` fills in a same-stem image if none is set.
                     self.load();
                 }
             }

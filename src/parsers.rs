@@ -1322,11 +1322,22 @@ fn audio_metadata(
             }
         }
     }
-    let mut poster = osstr_to_string(audio.clone().into_os_string());
-    poster.extend(".png".to_string().chars());
-    let posterpath = PathBuf::from(poster.clone());
-    if posterpath.is_file() {
-        meta_data.poster = poster.clone();
+    // find a same-stem cover image next to the file (`track.mp3` ->
+    // `track.png` / `track.jpg` / `track.jpeg`)
+    let audio_str = osstr_to_string(audio.clone().into_os_string());
+    let mut posterpath = std::path::PathBuf::new();
+    for ext in ["png", "jpg", "jpeg"] {
+        let Some(candidate) = crate::audio::coverart::same_stem_with_ext(&audio_str, ext) else {
+            continue;
+        };
+        if candidate.is_file() {
+            posterpath = candidate;
+            break;
+        }
+    }
+    if !posterpath.as_os_str().is_empty() {
+        let poster = osstr_to_string(posterpath.clone().into_os_string());
+        meta_data.poster = poster;
         data.special_files_insert(posterpath.clone());
     }
     if meta_data.thumb.len() == 0 {

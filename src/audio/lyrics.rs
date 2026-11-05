@@ -131,11 +131,7 @@ pub fn parse(contents: &str) -> Vec<LyricLine> {
 /// such file exists, it is unreadable, or it contains no non-empty lyric
 /// lines (tag-only files count as "no lyrics").
 pub fn from_audio_file(audio_path: &str) -> Option<Vec<LyricLine>> {
-    let path = match url::Url::parse(audio_path) {
-        Ok(url) if url.scheme() == "file" => url.to_file_path().ok()?,
-        _ => std::path::PathBuf::from(audio_path),
-    };
-    let lrc_path = path.with_extension("lrc");
+    let lrc_path = crate::audio::coverart::same_stem_with_ext(audio_path, "lrc")?;
     let bytes = std::fs::read(&lrc_path).ok()?;
     let lines = parse(&decode(&bytes));
     lines

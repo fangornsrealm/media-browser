@@ -2413,6 +2413,27 @@ impl App {
                     self.view();
                 }
                 file_format::Kind::Audio => {
+                    // Cover art from the database record (embedded art
+                    // extracted at scan time, or a scanned adjacent image);
+                    // `load()` falls back to a same-stem image next to the
+                    // file, then to the bundled dummy.
+                    let mut poster = None;
+                    if let Some(tab) = self.tab_model.data::<Tab>(self.tab_model_id) {
+                        if let Some(items) = tab.items_opt() {
+                            for item in items.iter() {
+                                if let Some(audio) = item.audio_opt.as_ref() {
+                                    if PathBuf::from(&audio.path) == path {
+                                        if poster.is_none() && !audio.poster.is_empty() {
+                                            poster = Some(audio.poster.clone());
+                                        } else if poster.is_none() && !audio.thumb.is_empty() {
+                                            poster = Some(audio.thumb.clone());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    self.audio_view.posterpath_opt = poster;
                     self.audio_view
                         .update(crate::audio::audio_view::Message::Open(filepath.clone()));
                     if let Some(tab) = self.tab_model.data_mut::<Tab>(self.tab_model_id) {

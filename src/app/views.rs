@@ -604,6 +604,28 @@ impl App {
                 match url::Url::from_file_path(std::path::PathBuf::from(&audiopath)) {
                     Ok(url) => {
                         self.audio_view.audiopath_opt = Some(url);
+                        // Cover art from the database record (embedded art
+                        // extracted at scan time); `load()` falls back to a
+                        // same-stem image next to the file.
+                        let mut poster = None;
+                        if let Some(tab) = self.tab_model.data::<Tab>(self.tab_model_id) {
+                            if let Some(items) = tab.items_opt() {
+                                for item in items.iter() {
+                                    if let Some(audio) = item.audio_opt.as_ref() {
+                                        if std::path::PathBuf::from(&audio.path)
+                                            == std::path::PathBuf::from(&audiopath)
+                                        {
+                                            if poster.is_none() && !audio.poster.is_empty() {
+                                                poster = Some(audio.poster.clone());
+                                            } else if poster.is_none() && !audio.thumb.is_empty() {
+                                                poster = Some(audio.thumb.clone());
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        self.audio_view.posterpath_opt = poster;
                         self.audio_view.load();
                         if let Some(tab) = self.tab_model.data_mut::<Tab>(self.tab_model_id) {
                             let v = tab.selected_file_paths();
@@ -995,6 +1017,10 @@ mod lyrics_integration {
                 "[00:00.00]First line\n[00:01.00]Second line\n[00:01.50]\n[00:02.00]Third line",
             )
             .ok()?;
+            let cover = dir.join("track.png");
+            image::RgbaImage::from_pixel(2, 2, image::Rgba([255, 0, 0, 255]))
+                .save(&cover)
+                .ok()?;
             let plain = dir.join("plain.mp3");
             std::fs::copy(&mp3, &plain).ok()?;
         }
@@ -1034,10 +1060,21 @@ mod lyrics_integration {
 
         // Open the audio file that has a same-name `.lrc` next to it.
         let _ = app.update(Message::AudioMessage(
-            crate::audio::audio_view::Message::Open(audio),
+            crate::audio::audio_view::Message::Open(audio.clone()),
         ));
 
         assert!(app.audio_view.audio_opt.is_some(), "audio must load");
+        // Cover art: `track.png` next to the audio file (no DB row here, so
+        // this exercises the same-stem fallback in `load()`).
+        let cover = std::path::Path::new(&audio)
+            .with_extension("png")
+            .to_string_lossy()
+            .to_string();
+        assert!(std::path::Path::new(&cover).is_file());
+        assert_eq!(
+            app.audio_view.posterpath_opt.as_deref(),
+            Some(cover.as_str())
+        );
         assert!(
             !app.audio_view.lyrics.is_empty(),
             "lyrics must be discovered from track.lrc"
@@ -1089,12 +1126,14 @@ mod lyrics_integration {
         assert!(app.audio_view.lyrics_follow);
         assert_eq!(app.audio_view.lyrics_scroll_target(), None);
 
-        // A file without an `.lrc` must load with no lyrics.
+        // A file without an `.lrc` must load with no lyrics, and without
+        // an adjacent image it must not inherit the previous cover.
         let _ = app.update(Message::AudioMessage(
             crate::audio::audio_view::Message::Open(plain),
         ));
         assert!(app.audio_view.audio_opt.is_some(), "plain audio must load");
         assert!(app.audio_view.lyrics.is_empty());
+        assert!(app.audio_view.posterpath_opt.is_none());
         {
             let _el = app.view();
         }
