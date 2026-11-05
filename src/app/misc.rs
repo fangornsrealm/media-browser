@@ -26,11 +26,11 @@
 //! access it. The zoom handlers dispatch `Message::TabConfig`, which is
 //! handled by the tab module.
 
-use cosmic::Application;
 use cosmic::app::Task;
 use cosmic::iced::keyboard::{Key, Modifiers};
 use cosmic::iced::window;
 use cosmic::widget::segmented_button::Entity;
+use cosmic::Application;
 use std::{env, num::NonZeroU16, process};
 
 use super::{App, Message, Mode};

@@ -44,9 +44,9 @@ use super::{
 use crate::clipboard::{ClipboardKind, ClipboardPaste};
 use crate::config::IconSizes;
 use crate::home_dir;
-use crate::mounter::{MOUNTERS, MounterAuth, MounterItem, MounterItems, MounterKey};
+use crate::mounter::{MounterAuth, MounterItem, MounterItems, MounterKey, MOUNTERS};
 use crate::operation::Operation;
-use crate::tab::{HOVER_DURATION, Location, Tab};
+use crate::tab::{Location, Tab, HOVER_DURATION};
 
 impl App {
     /// Handle `Message::MounterItems`.
@@ -489,16 +489,10 @@ impl App {
                 }
             }
             NavMenuAction::SimilarImageScan(entity) => {
-                return self.nav_similar_scan(
-                    crate::similar::SimilarKind::Image,
-                    entity,
-                );
+                return self.nav_similar_scan(crate::similar::SimilarKind::Image, entity);
             }
             NavMenuAction::SimilarVideoScan(entity) => {
-                return self.nav_similar_scan(
-                    crate::similar::SimilarKind::Video,
-                    entity,
-                );
+                return self.nav_similar_scan(crate::similar::SimilarKind::Video, entity);
             }
             NavMenuAction::RemoveFromSidebar(entity) => {
                 if let Some(FavoriteIndex(favorite_i)) =

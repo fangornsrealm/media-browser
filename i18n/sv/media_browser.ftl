@@ -396,3 +396,4 @@ description-browser = Välj andra media att använda
 audio = Ljudström
 subtitles = Undertextström
 chapters = Kapitelmarkeringar
+lyrics = Texter

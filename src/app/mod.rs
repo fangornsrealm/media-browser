@@ -7,40 +7,42 @@
 use cosmic::action as message;
 #[cfg(feature = "wayland")]
 use cosmic::iced::{
-    Limits,
     event::wayland::{Event as WaylandEvent, OutputEvent, OverlapNotifyEvent},
     platform_specific::runtime::wayland::layer_surface::{
         IcedMargin, IcedOutput, SctkLayerSurfaceSettings,
     },
     platform_specific::shell::wayland::commands::layer_surface::{
-        Anchor, KeyboardInteractivity, Layer, destroy_layer_surface, get_layer_surface,
+        destroy_layer_surface, get_layer_surface, Anchor, KeyboardInteractivity, Layer,
     },
+    Limits,
 };
 #[cfg(feature = "wayland")]
 use cosmic::iced_winit::commands::overlap_notify::overlap_notify;
 use cosmic::{
-    Application, ApplicationExt, Element,
-    app::{self, Core, Task, context_drawer},
+    app::{self, context_drawer, Core, Task},
     cosmic_config, cosmic_theme, executor, font,
     iced::{
-        Alignment, Event, Length, Rectangle, Size, Subscription, event,
+        event,
         futures::{self, SinkExt},
         keyboard::{Event as KeyEvent, Modifiers},
         stream,
         window::{self, Event as WindowEvent, Id as WindowId},
+        Alignment, Event, Length, Rectangle, Size, Subscription,
     },
     style, theme,
     widget::{
-        self, Container, Slider,
+        self,
         dnd_destination::DragId,
         menu::key_bind::KeyBind,
         segmented_button::{self, Entity},
-        space,
+        space, Container, Slider,
     },
+    Application, ApplicationExt, Element,
 };
 use notify_debouncer_full::{
-    Debouncer, FileIdMap, new_debouncer,
+    new_debouncer,
     notify::{self, RecommendedWatcher, Watcher},
+    Debouncer, FileIdMap,
 };
 use slotmap::Key as SlotMapKey;
 use std::{
@@ -64,7 +66,7 @@ pub use crate::video::video::Video;
 pub use crate::video::video_player::VideoPlayer;
 
 #[cfg(feature = "wayland")]
-use wayland_client::{Proxy, protocol::wl_output::WlOutput};
+use wayland_client::{protocol::wl_output::WlOutput, Proxy};
 
 use crate::{
     config::{AppTheme, Config, IconSizes, MediaFavorite as Favorite},
@@ -72,7 +74,7 @@ use crate::{
     key_bind::key_binds,
     localize::LANGUAGE_SORTER,
     menu,
-    mounter::{MOUNTERS, MounterAuth, MounterItems, MounterKey, MounterMessage},
+    mounter::{MounterAuth, MounterItems, MounterKey, MounterMessage, MOUNTERS},
     operation::{Controller, Operation, OperationSelection, ReplaceResult},
     tab::{self, ItemMetadata, Location, Tab},
 };
@@ -390,16 +392,15 @@ impl App {
         // Tabs are collected first to placate the borrowck
         let tabs: Vec<_> = self.tab_model.iter().collect();
         // Update main conf and each tab with the new config
-        let commands: Vec<_> = std::iter::once(cosmic::command::set_theme(
-            self.config.app_theme.theme(),
-        ))
-        .chain(tabs.into_iter().map(|entity| {
-            self.update(Message::TabMessage(
-                Some(entity),
-                tab::Message::Config(self.config.tab),
-            ))
-        }))
-        .collect();
+        let commands: Vec<_> =
+            std::iter::once(cosmic::command::set_theme(self.config.app_theme.theme()))
+                .chain(tabs.into_iter().map(|entity| {
+                    self.update(Message::TabMessage(
+                        Some(entity),
+                        tab::Message::Config(self.config.tab),
+                    ))
+                }))
+                .collect();
         Task::batch(commands)
     }
 
@@ -871,15 +872,18 @@ impl App {
 
         column = column.push(widget::text::heading(fl!("search-mediatypes")));
         column = column.push(widget::row::with_children(vec![
-            widget::checkbox(self.search.image).label(fl!("search-images"))
+            widget::checkbox(self.search.image)
+                .label(fl!("search-images"))
                 .on_toggle(|b| Message::SearchImages(b))
                 .into(),
             widget::space::horizontal().into(),
-            widget::checkbox(self.search.video).label(fl!("search-videos"))
+            widget::checkbox(self.search.video)
+                .label(fl!("search-videos"))
                 .on_toggle(|b| Message::SearchVideos(b))
                 .into(),
             widget::space::horizontal().into(),
-            widget::checkbox(self.search.audio).label(fl!("search-audios"))
+            widget::checkbox(self.search.audio)
+                .label(fl!("search-audios"))
                 .on_toggle(|b| Message::SearchAudios(b))
                 .into(),
         ]));
@@ -910,98 +914,119 @@ impl App {
             .into(),
         ]));
         column = column.push(widget::row::with_children(vec![
-            widget::checkbox(self.search.filepath).label(fl!("search-filepath"))
+            widget::checkbox(self.search.filepath)
+                .label(fl!("search-filepath"))
                 .on_toggle(move |value| Message::SearchFilepath(value))
                 .into(),
             widget::space::horizontal().into(),
-            widget::checkbox(self.search.title).label(fl!("search-title"))
+            widget::checkbox(self.search.title)
+                .label(fl!("search-title"))
                 .on_toggle(move |value| Message::SearchTitle(value))
                 .into(),
             widget::space::horizontal().into(),
-            widget::checkbox(self.search.tags).label(fl!("search-tag"))
+            widget::checkbox(self.search.tags)
+                .label(fl!("search-tag"))
                 .on_toggle(move |value| Message::SearchTag(value))
                 .into(),
         ]));
         column = column.push(widget::row::with_children(vec![
-            widget::checkbox(self.search.description).label(fl!("search-description"))
+            widget::checkbox(self.search.description)
+                .label(fl!("search-description"))
                 .on_toggle(move |value| Message::SearchDescription(value))
                 .into(),
             widget::space::horizontal().into(),
-            widget::checkbox(self.search.actor).label(fl!("search-actor"))
+            widget::checkbox(self.search.actor)
+                .label(fl!("search-actor"))
                 .on_toggle(move |value| Message::SearchActor(value))
                 .into(),
             widget::space::horizontal().into(),
-            widget::checkbox(self.search.director).label(fl!("search-director"))
+            widget::checkbox(self.search.director)
+                .label(fl!("search-director"))
                 .on_toggle(move |value| Message::SearchDirector(value))
                 .into(),
         ]));
         column = column.push(widget::row::with_children(vec![
-            widget::checkbox(self.search.album).label(fl!("search-album"))
+            widget::checkbox(self.search.album)
+                .label(fl!("search-album"))
                 .on_toggle(move |value| Message::SearchAlbum(value))
                 .into(),
             widget::space::horizontal().into(),
-            widget::checkbox(self.search.composer).label(fl!("search-composer"))
+            widget::checkbox(self.search.composer)
+                .label(fl!("search-composer"))
                 .on_toggle(move |value| Message::SearchComposer(value))
                 .into(),
             widget::space::horizontal().into(),
-            widget::checkbox(self.search.genre).label(fl!("search-genre"))
+            widget::checkbox(self.search.genre)
+                .label(fl!("search-genre"))
                 .on_toggle(move |value| Message::SearchGenre(value))
                 .into(),
         ]));
         column = column.push(widget::row::with_children(vec![
-            widget::checkbox(self.search.artist).label(fl!("search-artist"))
+            widget::checkbox(self.search.artist)
+                .label(fl!("search-artist"))
                 .on_toggle(move |value| Message::SearchArtist(value))
                 .into(),
             widget::space::horizontal().into(),
-            widget::checkbox(self.search.album_artist).label(fl!("search-album_artist"))
+            widget::checkbox(self.search.album_artist)
+                .label(fl!("search-album_artist"))
                 .on_toggle(move |value| Message::SearchAlbumartist(value))
                 .into(),
             widget::space::horizontal().into(),
-            widget::checkbox(self.search.duration).label(fl!("search-duration"))
+            widget::checkbox(self.search.duration)
+                .label(fl!("search-duration"))
                 .on_toggle(move |value| Message::SearchDuration(value))
                 .into(),
         ]));
         column = column.push(widget::row::with_children(vec![
-            widget::checkbox(self.search.creation_date).label(fl!("search-creation_date"))
+            widget::checkbox(self.search.creation_date)
+                .label(fl!("search-creation_date"))
                 .on_toggle(move |value| Message::SearchCreationDate(value))
                 .into(),
             widget::space::horizontal().into(),
             widget::checkbox(self.search.modification_date)
                 .label(fl!("search-modification_date"))
                 .on_toggle(move |value| Message::SearchModificationDate(value))
-            .into(),
+                .into(),
             widget::space::horizontal().into(),
-            widget::checkbox(self.search.release_date).label(fl!("search-release_date"))
+            widget::checkbox(self.search.release_date)
+                .label(fl!("search-release_date"))
                 .on_toggle(move |value| Message::SearchReleaseDate(value))
                 .into(),
         ]));
         column = column.push(widget::row::with_children(vec![
-            widget::checkbox(self.search.lense_model).label(fl!("search-lense_model"))
+            widget::checkbox(self.search.lense_model)
+                .label(fl!("search-lense_model"))
                 .on_toggle(move |value| Message::SearchLenseModel(value))
                 .into(),
             widget::space::horizontal().into(),
-            widget::checkbox(self.search.focal_length).label(fl!("search-focal_length"))
+            widget::checkbox(self.search.focal_length)
+                .label(fl!("search-focal_length"))
                 .on_toggle(move |value| Message::SearchFocalLength(value))
                 .into(),
             widget::space::horizontal().into(),
-            widget::checkbox(self.search.exposure_time).label(fl!("search-exposure_time"))
+            widget::checkbox(self.search.exposure_time)
+                .label(fl!("search-exposure_time"))
                 .on_toggle(move |value| Message::SearchExposureTime(value))
                 .into(),
             widget::space::horizontal().into(),
-            widget::checkbox(self.search.fnumber).label(fl!("search-fnumber"))
+            widget::checkbox(self.search.fnumber)
+                .label(fl!("search-fnumber"))
                 .on_toggle(move |value| Message::SearchFNumber(value))
                 .into(),
         ]));
         column = column.push(widget::row::with_children(vec![
-            widget::checkbox(self.search.gps_latitude).label(fl!("search-gps_latitude"))
+            widget::checkbox(self.search.gps_latitude)
+                .label(fl!("search-gps_latitude"))
                 .on_toggle(move |value| Message::SearchGpsLatitude(value))
                 .into(),
             widget::space::horizontal().into(),
-            widget::checkbox(self.search.gps_longitude).label(fl!("search-gps_longitude"))
+            widget::checkbox(self.search.gps_longitude)
+                .label(fl!("search-gps_longitude"))
                 .on_toggle(move |value| Message::SearchGpsLongitude(value))
                 .into(),
             widget::space::horizontal().into(),
-            widget::checkbox(self.search.gps_altitude).label(fl!("search-gps_altitude"))
+            widget::checkbox(self.search.gps_altitude)
+                .label(fl!("search-gps_altitude"))
                 .on_toggle(move |value| Message::SearchGpsAltitude(value))
                 .into(),
         ]));
@@ -1090,8 +1115,8 @@ impl App {
             })
             .add({
                 let base = similar_base.clone();
-                widget::settings::item::builder(fl!("similar-video-interval"))
-                    .control(widget::spin_button(
+                widget::settings::item::builder(fl!("similar-video-interval")).control(
+                    widget::spin_button(
                         base.video_screenshot_interval.to_string(),
                         fl!("similar-video-interval"),
                         base.video_screenshot_interval,
@@ -1103,12 +1128,13 @@ impl App {
                             cfg.video_screenshot_interval = value;
                             Message::SimilarConfig(cfg)
                         },
-                    ))
+                    ),
+                )
             })
             .add({
                 let base = similar_base.clone();
-                widget::settings::item::builder(fl!("similar-video-min-sequence"))
-                    .control(widget::spin_button(
+                widget::settings::item::builder(fl!("similar-video-min-sequence")).control(
+                    widget::spin_button(
                         base.video_min_sequence.to_string(),
                         fl!("similar-video-min-sequence"),
                         base.video_min_sequence,
@@ -1120,12 +1146,13 @@ impl App {
                             cfg.video_min_sequence = value;
                             Message::SimilarConfig(cfg)
                         },
-                    ))
+                    ),
+                )
             })
             .add({
                 let base = similar_base.clone();
-                widget::settings::item::builder(fl!("similar-video-threads"))
-                    .control(widget::spin_button(
+                widget::settings::item::builder(fl!("similar-video-threads")).control(
+                    widget::spin_button(
                         base.video_num_threads.to_string(),
                         fl!("similar-video-threads"),
                         base.video_num_threads,
@@ -1137,7 +1164,8 @@ impl App {
                             cfg.video_num_threads = value;
                             Message::SimilarConfig(cfg)
                         },
-                    ))
+                    ),
+                )
             })
             .add({
                 let base = similar_base.clone();
@@ -1159,36 +1187,29 @@ impl App {
             })
             .add({
                 let base = similar_base.clone();
-                widget::settings::item::builder(fl!("similar-recursive"))
-                    .control(
-                        widget::checkbox(base.recursive).on_toggle(move |checked: bool| {
-                            let mut cfg = base.clone();
-                            cfg.recursive = checked;
-                            Message::SimilarConfig(cfg)
-                        }),
-                    )
+                widget::settings::item::builder(fl!("similar-recursive")).control(
+                    widget::checkbox(base.recursive).on_toggle(move |checked: bool| {
+                        let mut cfg = base.clone();
+                        cfg.recursive = checked;
+                        Message::SimilarConfig(cfg)
+                    }),
+                )
             })
             .add(
-                widget::settings::item::builder(fl!("similar-delete-image-store"))
-                    .control(
-                        widget::button::custom(
-                            widget::icon::from_name("user-trash-symbolic").size(16),
-                        )
+                widget::settings::item::builder(fl!("similar-delete-image-store")).control(
+                    widget::button::custom(widget::icon::from_name("user-trash-symbolic").size(16))
                         .on_press(Message::SimilarDeleteStore(
                             crate::similar::SimilarKind::Image,
                         )),
-                    ),
+                ),
             )
             .add(
-                widget::settings::item::builder(fl!("similar-delete-video-store"))
-                    .control(
-                        widget::button::custom(
-                            widget::icon::from_name("user-trash-symbolic").size(16),
-                        )
+                widget::settings::item::builder(fl!("similar-delete-video-store")).control(
+                    widget::button::custom(widget::icon::from_name("user-trash-symbolic").size(16))
                         .on_press(Message::SimilarDeleteStore(
                             crate::similar::SimilarKind::Video,
                         )),
-                    ),
+                ),
             );
 
         if let Ok(metadata_item) =
@@ -1255,11 +1276,8 @@ impl App {
                 .into(),
             }
         } else {
-            widget::column::with_children(vec![
-                appearance_section.into(),
-                similar_section.into(),
-            ])
-            .into()
+            widget::column::with_children(vec![appearance_section.into(), similar_section.into()])
+                .into()
         }
     }
 
@@ -2192,13 +2210,71 @@ impl App {
             popover = popover.popup(widget::column::with_children(popup_items));
         }
 
-        widget::container(popover)
+        let main_area: Element<_> = widget::container(popover)
             .width(Length::Fill)
             .height(Length::Fill)
             .class(theme::Container::Custom(Box::new(|_theme| {
                 widget::container::Style::default().background(cosmic::iced::Color::BLACK)
             })))
-            .into()
+            .into();
+
+        // No external lyrics file: the layout is exactly what it was before.
+        if self.audio_view.lyrics.is_empty() {
+            return main_area;
+        }
+
+        let active =
+            crate::audio::lyrics::active_index(&self.audio_view.lyrics, self.audio_view.position);
+        let mut lines: Vec<Element<'_, _>> = Vec::with_capacity(self.audio_view.lyrics.len());
+        for (i, line) in self.audio_view.lyrics.iter().enumerate() {
+            if line.text.is_empty() {
+                lines.push(
+                    widget::space::vertical()
+                        .height(Length::Fixed(crate::audio::lyrics::SPACER_PX))
+                        .into(),
+                );
+                continue;
+            }
+            let text = if Some(i) == active {
+                widget::text::heading(line.text.as_str())
+            } else {
+                widget::text(line.text.as_str())
+            };
+            lines.push(
+                widget::container(widget::mouse_area(text).on_press(Message::AudioMessage(
+                    crate::audio::audio_view::Message::LyricSeek(i),
+                )))
+                .width(Length::Fill)
+                .into(),
+            );
+        }
+
+        let lyrics_panel: Element<_> = widget::container(
+            widget::column::with_capacity(2)
+                .align_x(Alignment::Start)
+                .push(widget::text::body(fl!("lyrics")))
+                .push(
+                    widget::scrollable(
+                        widget::column::with_children(lines)
+                            .spacing(crate::audio::lyrics::SPACING_PX),
+                    )
+                    .id(self.audio_view.lyrics_scroll_id.clone())
+                    .on_scroll(|viewport| {
+                        Message::AudioMessage(crate::audio::audio_view::Message::LyricsScroll(
+                            viewport.absolute_offset().y,
+                        ))
+                    })
+                    .width(Length::Fill)
+                    .height(Length::Fill),
+                ),
+        )
+        .width(Length::Fixed(320.0))
+        .height(Length::Fill)
+        .padding(space_m)
+        .class(theme::Container::Background)
+        .into();
+
+        widget::row::with_children(vec![main_area, lyrics_panel]).into()
     }
 
     fn view_browser_view(&self) -> Element<'_, <App as cosmic::Application>::Message> {
@@ -2523,10 +2599,8 @@ impl Application for App {
         // startup if it is missing so the menu item is not a surprise.
         if !crate::similar::ffmpeg_available() {
             commands.push(cosmic::task::batch([app.toasts.push(
-                cosmic::widget::toaster::Toast::new(crate::fl!(
-                    "similar-ffmpeg-missing"
-                ))
-                .duration(cosmic::widget::toaster::Duration::Long),
+                cosmic::widget::toaster::Toast::new(crate::fl!("similar-ffmpeg-missing"))
+                    .duration(cosmic::widget::toaster::Duration::Long),
             )]));
         }
 
@@ -2558,14 +2632,10 @@ impl Application for App {
         .drag_id(self.nav_drag_id)
         .on_dnd_enter(|entity, _| message::app(Message::DndEnterNav(entity)))
         .on_dnd_leave(|_| message::app(Message::DndExitNav))
-        .on_dnd_drop(|entity, data, action| {
-            message::app(Message::DndDropNav(entity, data, action))
-        })
+        .on_dnd_drop(|entity, data, action| message::app(Message::DndDropNav(entity, data, action)))
         .on_context(|entity| message::app(Message::NavBarContext(entity)))
         .on_close(|entity| message::app(Message::NavBarClose(entity)))
-        .on_middle_press(|entity| {
-            message::app(Message::NavMenuAction(NavMenuAction::Open(entity)))
-        })
+        .on_middle_press(|entity| message::app(Message::NavMenuAction(NavMenuAction::Open(entity))))
         .context_menu(self.nav_context_menu())
         .close_icon(
             widget::icon::from_name("media-eject-symbolic")
@@ -2803,14 +2873,10 @@ impl Application for App {
             Message::SimilarCancel => self.similar_cancel(),
             Message::SimilarConfig(config) => self.similar_config(config),
             Message::SimilarDeleteStore(kind) => self.similar_delete_store(kind),
-            Message::SimilarImageScan(entity_opt) => {
-                self.similar_image_scan(entity_opt)
-            }
+            Message::SimilarImageScan(entity_opt) => self.similar_image_scan(entity_opt),
             Message::SimilarOpenResults(path) => self.similar_open_results(path),
             Message::SimilarProgress(progress) => self.similar_progress(progress),
-            Message::SimilarVideoScan(entity_opt) => {
-                self.similar_video_scan(entity_opt)
-            }
+            Message::SimilarVideoScan(entity_opt) => self.similar_video_scan(entity_opt),
             Message::AudioMessage(audio_message) => self.audio_message(audio_message),
             Message::Config(config) => self.config(config),
             Message::Copy(entity_opt) => self.copy(entity_opt),
@@ -3374,7 +3440,8 @@ impl Application for App {
                     //TODO: what should submit do?
                     //TODO: button for showing password
                     controls.push(
-                        widget::checkbox(*remember).label(fl!("remember-password"))
+                        widget::checkbox(*remember)
+                            .label(fl!("remember-password"))
                             .on_toggle(move |value| {
                                 Message::DialogUpdate(DialogPage::NetworkAuth {
                                     mounter_key: *mounter_key,
@@ -3491,12 +3558,10 @@ impl Application for App {
                                         dir: *dir,
                                     })
                                 })
-                                .on_submit_maybe(
-                                    complete_maybe.as_ref().map(|msg| {
-                                        let owned = msg.clone();
-                                        move |_| owned.clone()
-                                    }),
-                                )
+                                .on_submit_maybe(complete_maybe.as_ref().map(|msg| {
+                                    let owned = msg.clone();
+                                    move |_| owned.clone()
+                                }))
                                 .into(),
                         ])
                         .spacing(space_xxs),
@@ -3538,12 +3603,10 @@ impl Application for App {
                                         tag: tag.to_string(),
                                     })
                                 })
-                                .on_submit_maybe(
-                                    complete_maybe.as_ref().map(|msg| {
-                                        let owned = msg.clone();
-                                        move |_| owned.clone()
-                                    }),
-                                )
+                                .on_submit_maybe(complete_maybe.as_ref().map(|msg| {
+                                    let owned = msg.clone();
+                                    move |_| owned.clone()
+                                }))
                                 .into(),
                         ])
                         .spacing(space_xxs),
@@ -3673,12 +3736,10 @@ impl Application for App {
                                         dir: *dir,
                                     })
                                 })
-                                .on_submit_maybe(
-                                    complete_maybe.as_ref().map(|msg| {
-                                        let owned = msg.clone();
-                                        move |_| owned.clone()
-                                    }),
-                                )
+                                .on_submit_maybe(complete_maybe.as_ref().map(|msg| {
+                                    let owned = msg.clone();
+                                    move |_| owned.clone()
+                                }))
                                 .into(),
                         ])
                         .spacing(space_xxs),
@@ -3702,8 +3763,9 @@ impl Application for App {
                 if *multiple {
                     dialog
                         .control(
-                            widget::checkbox(*apply_to_all).label(fl!("apply-to-all")).on_toggle(
-                                |apply_to_all| {
+                            widget::checkbox(*apply_to_all)
+                                .label(fl!("apply-to-all"))
+                                .on_toggle(|apply_to_all| {
                                     Message::DialogUpdate(DialogPage::Replace {
                                         from: from.clone(),
                                         to: to.clone(),
@@ -3711,8 +3773,7 @@ impl Application for App {
                                         apply_to_all,
                                         tx: tx.clone(),
                                     })
-                                },
-                            ),
+                                }),
                         )
                         .secondary_action(
                             widget::button::standard(fl!("skip")).on_press(Message::ReplaceResult(
@@ -3816,11 +3877,9 @@ impl Application for App {
                             .girth(Length::Fixed(4.0))
                             .into(),
                         widget::tooltip(
-                            widget::button::icon(widget::icon::from_name(
-                                "window-close-symbolic",
-                            ))
-                            .on_press(Message::SimilarCancel)
-                            .padding(8),
+                            widget::button::icon(widget::icon::from_name("window-close-symbolic"))
+                                .on_press(Message::SimilarCancel)
+                                .padding(8),
                             widget::text::body(fl!("cancel")),
                             widget::tooltip::Position::Top,
                         )
@@ -3835,82 +3894,79 @@ impl Application for App {
         }
 
         if !self.progress_operations.is_empty() {
-        children.push(
-        widget::column::with_children(vec![
-            widget::row::with_children(vec![
-                progress_bar.into(),
-                if all_paused {
-                    widget::tooltip(
-                        widget::button::icon(widget::icon::from_name(
-                            "media-playback-start-symbolic",
-                        ))
-                        .on_press(Message::PendingPauseAll(false))
-                        .padding(8),
-                        widget::text::body("Resume".to_string()),
-                        widget::tooltip::Position::Top,
-                    )
-                    .into()
-                } else {
-                    widget::tooltip(
-                        widget::button::icon(widget::icon::from_name(
-                            "media-playback-pause-symbolic",
-                        ))
-                        .on_press(Message::PendingPauseAll(true))
-                        .padding(8),
-                        widget::text::body("Pause".to_string()),
-                        widget::tooltip::Position::Top,
-                    )
-                    .into()
-                },
-                widget::tooltip(
-                    widget::button::icon(widget::icon::from_name("window-close-symbolic"))
-                        .on_press(Message::PendingCancelAll)
-                        .padding(8),
-                    widget::text::body(fl!("cancel")),
-                    widget::tooltip::Position::Top,
-                )
+            children.push(
+                widget::column::with_children(vec![
+                    widget::row::with_children(vec![
+                        progress_bar.into(),
+                        if all_paused {
+                            widget::tooltip(
+                                widget::button::icon(widget::icon::from_name(
+                                    "media-playback-start-symbolic",
+                                ))
+                                .on_press(Message::PendingPauseAll(false))
+                                .padding(8),
+                                widget::text::body("Resume".to_string()),
+                                widget::tooltip::Position::Top,
+                            )
+                            .into()
+                        } else {
+                            widget::tooltip(
+                                widget::button::icon(widget::icon::from_name(
+                                    "media-playback-pause-symbolic",
+                                ))
+                                .on_press(Message::PendingPauseAll(true))
+                                .padding(8),
+                                widget::text::body("Pause".to_string()),
+                                widget::tooltip::Position::Top,
+                            )
+                            .into()
+                        },
+                        widget::tooltip(
+                            widget::button::icon(widget::icon::from_name("window-close-symbolic"))
+                                .on_press(Message::PendingCancelAll)
+                                .padding(8),
+                            widget::text::body(fl!("cancel")),
+                            widget::tooltip::Position::Top,
+                        )
+                        .into(),
+                    ])
+                    .align_y(Alignment::Center)
+                    .into(),
+                    widget::text::body(title).into(),
+                    widget::Space::new().height(space_s as f32).into(),
+                    widget::row::with_children(vec![
+                        widget::button::link("details".to_string())
+                            .on_press(Message::ToggleContextPage(ContextPage::EditHistory))
+                            .padding(0)
+                            .trailing_icon(true)
+                            .into(),
+                        widget::space::horizontal().into(),
+                        widget::button::standard("dismiss".to_string())
+                            .on_press(Message::PendingDismiss)
+                            .into(),
+                    ])
+                    .align_y(Alignment::Center)
+                    .into(),
+                ])
                 .into(),
-            ])
-            .align_y(Alignment::Center)
-            .into(),
-            widget::text::body(title).into(),
-            widget::Space::new().height(space_s as f32).into(),
-            widget::row::with_children(vec![
-                widget::button::link("details".to_string())
-                    .on_press(Message::ToggleContextPage(ContextPage::EditHistory))
-                    .padding(0)
-                    .trailing_icon(true)
-                    .into(),
-                widget::space::horizontal().into(),
-                widget::button::standard("dismiss".to_string())
-                    .on_press(Message::PendingDismiss)
-                    .into(),
-            ])
-            .align_y(Alignment::Center)
-            .into(),
-            ])
-            .into(),
-        );
+            );
         }
 
-        let container = widget::layer_container(
-            widget::column::with_children(children).spacing(space_s),
-        )
-        .padding([8, space_xs])
-        .layer(cosmic_theme::Layer::Primary);
+        let container =
+            widget::layer_container(widget::column::with_children(children).spacing(space_s))
+                .padding([8, space_xs])
+                .layer(cosmic_theme::Layer::Primary);
 
         Some(container.into())
     }
 
     fn header_start(&self) -> Vec<Element<'_, Self::Message>> {
-        vec![
-            menu::menu_bar(
-                self.tab_model.active_data::<Tab>(),
-                &self.config,
-                &self.key_binds,
-            )
-            .into(),
-        ]
+        vec![menu::menu_bar(
+            self.tab_model.active_data::<Tab>(),
+            &self.config,
+            &self.key_binds,
+        )
+        .into()]
     }
 
     fn header_end(&self) -> Vec<Element<'_, Self::Message>> {
@@ -4135,22 +4191,21 @@ impl Application for App {
                 }
                 Message::SystemThemeModeChange(update.config)
             }),
-            Subscription::run_with(
-                TypeId::of::<WatcherSubscription>(),
-                |_data: &TypeId| stream::channel::<Message>(
+            Subscription::run_with(TypeId::of::<WatcherSubscription>(), |_data: &TypeId| {
+                stream::channel::<Message>(
                     100,
                     |mut output: futures::channel::mpsc::Sender<Message>| async move {
-                    let watcher_res = {
-                        let mut output = output.clone();
-                        new_debouncer(
-                            time::Duration::from_millis(250),
-                            Some(time::Duration::from_millis(250)),
-                            move |events_res: notify_debouncer_full::DebounceEventResult| {
-                                match events_res {
-                                    Ok(mut events) => {
-                                        log::debug!("{:?}", events);
+                        let watcher_res = {
+                            let mut output = output.clone();
+                            new_debouncer(
+                                time::Duration::from_millis(250),
+                                Some(time::Duration::from_millis(250)),
+                                move |events_res: notify_debouncer_full::DebounceEventResult| {
+                                    match events_res {
+                                        Ok(mut events) => {
+                                            log::debug!("{:?}", events);
 
-                                        events.retain(|event| {
+                                            events.retain(|event| {
                                             match &event.kind {
                                                 notify::EventKind::Access(_) => {
                                                     // Data not mutated
@@ -4169,118 +4224,128 @@ impl Application for App {
                                             }
                                         });
 
-                                        if !events.is_empty() {
-                                            match futures::executor::block_on(async {
-                                                output.send(Message::NotifyEvents(events)).await
-                                            }) {
-                                                Ok(()) => {}
-                                                Err(err) => {
-                                                    log::warn!(
-                                                        "failed to send notify events: {:?}",
-                                                        err
-                                                    );
+                                            if !events.is_empty() {
+                                                match futures::executor::block_on(async {
+                                                    output.send(Message::NotifyEvents(events)).await
+                                                }) {
+                                                    Ok(()) => {}
+                                                    Err(err) => {
+                                                        log::warn!(
+                                                            "failed to send notify events: {:?}",
+                                                            err
+                                                        );
+                                                    }
                                                 }
                                             }
                                         }
+                                        Err(err) => {
+                                            log::warn!("failed to watch files: {:?}", err);
+                                        }
                                     }
-                                    Err(err) => {
-                                        log::warn!("failed to watch files: {:?}", err);
-                                    }
-                                }
-                            },
-                        )
-                    };
+                                },
+                            )
+                        };
 
-                    match watcher_res {
-                        Ok(watcher) => {
-                            match output
-                                .send(Message::NotifyWatcher(WatcherWrapper {
-                                    watcher_opt: Some(watcher),
-                                }))
-                                .await
-                            {
-                                Ok(()) => {}
-                                Err(err) => {
-                                    log::warn!("failed to send notify watcher: {:?}", err);
+                        match watcher_res {
+                            Ok(watcher) => {
+                                match output
+                                    .send(Message::NotifyWatcher(WatcherWrapper {
+                                        watcher_opt: Some(watcher),
+                                    }))
+                                    .await
+                                {
+                                    Ok(()) => {}
+                                    Err(err) => {
+                                        log::warn!("failed to send notify watcher: {:?}", err);
+                                    }
                                 }
                             }
+                            Err(err) => {
+                                log::warn!("failed to create file watcher: {:?}", err);
+                            }
                         }
-                        Err(err) => {
-                            log::warn!("failed to create file watcher: {:?}", err);
-                        }
-                    }
 
-                    std::future::pending().await
-                }),
-            ),
+                        std::future::pending().await
+                    },
+                )
+            }),
             Subscription::run_with(
                 TypeId::of::<TrashWatcherSubscription>(),
-                |_data: &TypeId| stream::channel::<Message>(
-                    25,
-                    |mut output: futures::channel::mpsc::Sender<Message>| async move {
-                    let watcher_res = new_debouncer(
-                        time::Duration::from_millis(250),
-                        Some(time::Duration::from_millis(250)),
-                        move |event_res: notify_debouncer_full::DebounceEventResult| match event_res
-                        {
-                            Ok(mut events) => {
-                                events.retain(|event| {
-                                    matches!(
-                                        event.kind,
-                                        notify::EventKind::Create(_) | notify::EventKind::Remove(_)
-                                    )
-                                });
+                |_data: &TypeId| {
+                    stream::channel::<Message>(
+                        25,
+                        |mut output: futures::channel::mpsc::Sender<Message>| async move {
+                            let watcher_res = new_debouncer(
+                                time::Duration::from_millis(250),
+                                Some(time::Duration::from_millis(250)),
+                                move |event_res: notify_debouncer_full::DebounceEventResult| {
+                                    match event_res {
+                                        Ok(mut events) => {
+                                            events.retain(|event| {
+                                                matches!(
+                                                    event.kind,
+                                                    notify::EventKind::Create(_)
+                                                        | notify::EventKind::Remove(_)
+                                                )
+                                            });
 
-                                if !events.is_empty() {
-                                    if let Err(e) = futures::executor::block_on(async {
-                                        output.send(Message::RescanTrash).await
-                                    }) {
-                                        log::warn!(
+                                            if !events.is_empty() {
+                                                if let Err(e) = futures::executor::block_on(async {
+                                                    output.send(Message::RescanTrash).await
+                                                }) {
+                                                    log::warn!(
                                             "trash needs to be rescanned but sending message failed: {e:?}"
                                         );
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            log::warn!(
+                                                "failed to watch trash bin for changes: {e:?}"
+                                            )
+                                        }
                                     }
-                                }
-                            }
-                            Err(e) => {
-                                log::warn!("failed to watch trash bin for changes: {e:?}")
-                            }
-                        },
-                    );
+                                },
+                            );
 
-                    // TODO: Trash watching support for Windows, macOS, and other OSes
-                    #[cfg(all(
-                        unix,
-                        not(target_os = "macos"),
-                        not(target_os = "ios"),
-                        not(target_os = "android")
-                    ))]
-                    match (watcher_res, ::trash::os_limited::trash_folders()) {
-                        (Ok(mut watcher), Ok(trash_bins)) => {
-                            for path in trash_bins {
-                                if let Err(e) = watcher
-                                    .watcher()
-                                    .watch(&path, notify::RecursiveMode::Recursive)
-                                {
+                            // TODO: Trash watching support for Windows, macOS, and other OSes
+                            #[cfg(all(
+                                unix,
+                                not(target_os = "macos"),
+                                not(target_os = "ios"),
+                                not(target_os = "android")
+                            ))]
+                            match (watcher_res, ::trash::os_limited::trash_folders()) {
+                                (Ok(mut watcher), Ok(trash_bins)) => {
+                                    for path in trash_bins {
+                                        if let Err(e) = watcher
+                                            .watcher()
+                                            .watch(&path, notify::RecursiveMode::Recursive)
+                                        {
+                                            log::warn!(
+                                                "failed to add trash bin `{}` to watcher: {e:?}",
+                                                path.display()
+                                            );
+                                        }
+                                    }
+
+                                    // Don't drop the watcher
+                                    std::future::pending().await
+                                }
+                                (Err(e), _) => {
+                                    log::warn!("failed to create new watcher for trash bin: {e:?}")
+                                }
+                                (_, Err(e)) => {
                                     log::warn!(
-                                        "failed to add trash bin `{}` to watcher: {e:?}",
-                                        path.display()
-                                    );
+                                        "could not find any valid trash bins to watch: {e:?}"
+                                    )
                                 }
                             }
 
-                            // Don't drop the watcher
                             std::future::pending().await
-                        }
-                        (Err(e), _) => {
-                            log::warn!("failed to create new watcher for trash bin: {e:?}")
-                        }
-                        (_, Err(e)) => {
-                            log::warn!("could not find any valid trash bins to watch: {e:?}")
-                        }
-                    }
-
-                    std::future::pending().await
-                }),
+                        },
+                    )
+                },
             ),
         ];
 
@@ -4316,38 +4381,43 @@ impl Application for App {
                     struct NotificationSubscription;
                     subscriptions.push(Subscription::run_with(
                         TypeId::of::<NotificationSubscription>(),
-                        |_data: &TypeId| stream::channel::<Message>(
-                            1,
-                            move |msg_tx: futures::channel::mpsc::Sender<Message>| async move {
-                                let msg_tx = Arc::new(tokio::sync::Mutex::new(msg_tx));
-                                tokio::task::spawn_blocking(move || {
-                                    match notify_rust::Notification::new()
-                                        .summary(&fl!("notification-in-progress"))
-                                        .timeout(notify_rust::Timeout::Never)
-                                        .show()
-                                    {
-                                        Ok(notification) => {
-                                            let _ = futures::executor::block_on(async {
-                                                msg_tx
-                                                    .lock()
-                                                    .await
-                                                    .send(Message::Notification(Arc::new(
-                                                        Mutex::new(notification),
-                                                    )))
-                                                    .await
-                                            });
+                        |_data: &TypeId| {
+                            stream::channel::<Message>(
+                                1,
+                                move |msg_tx: futures::channel::mpsc::Sender<Message>| async move {
+                                    let msg_tx = Arc::new(tokio::sync::Mutex::new(msg_tx));
+                                    tokio::task::spawn_blocking(move || {
+                                        match notify_rust::Notification::new()
+                                            .summary(&fl!("notification-in-progress"))
+                                            .timeout(notify_rust::Timeout::Never)
+                                            .show()
+                                        {
+                                            Ok(notification) => {
+                                                let _ = futures::executor::block_on(async {
+                                                    msg_tx
+                                                        .lock()
+                                                        .await
+                                                        .send(Message::Notification(Arc::new(
+                                                            Mutex::new(notification),
+                                                        )))
+                                                        .await
+                                                });
+                                            }
+                                            Err(err) => {
+                                                log::warn!(
+                                                    "failed to create notification: {}",
+                                                    err
+                                                );
+                                            }
                                         }
-                                        Err(err) => {
-                                            log::warn!("failed to create notification: {}", err);
-                                        }
-                                    }
-                                })
-                                .await
-                                .unwrap();
+                                    })
+                                    .await
+                                    .unwrap();
 
-                                std::future::pending().await
-                            },
-                        ),
+                                    std::future::pending().await
+                                },
+                            )
+                        },
                     ));
                 }
             }
@@ -4428,7 +4498,7 @@ pub(crate) mod test_utils {
     };
 
     use log::{debug, trace};
-    use tempfile::{TempDir, tempdir};
+    use tempfile::{tempdir, TempDir};
 
     use crate::{
         config::{IconSizes, MediaTabConfig as TabConfig},
@@ -4565,7 +4635,11 @@ pub(crate) mod test_utils {
         Ok(path.read_dir()?.filter_map(|entry| {
             entry.ok().and_then(|entry| {
                 let path = entry.path();
-                if path.is_dir() { Some(path) } else { None }
+                if path.is_dir() {
+                    Some(path)
+                } else {
+                    None
+                }
             })
         }))
     }

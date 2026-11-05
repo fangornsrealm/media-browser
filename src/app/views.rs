@@ -19,10 +19,10 @@
 //! this module imports that trait to call them. `App`'s private fields are
 //! reachable here because this module is a child of `app`.
 
-use cosmic::Application;
 use cosmic::app::Task;
 use cosmic::iced::window;
 use cosmic::widget::segmented_button::Entity;
+use cosmic::Application;
 
 use super::{App, Message, Mode};
 use crate::tab::{self, Tab};
@@ -378,6 +378,15 @@ impl App {
             let _ = self.update(Message::AudioMessage(
                 crate::audio::audio_view::Message::NewFrame,
             ));
+            if let Some(offset) = self.audio_view.lyrics_scroll_target() {
+                return cosmic::iced::widget::scrollable::scroll_to(
+                    self.audio_view.lyrics_scroll_id.clone(),
+                    cosmic::iced::widget::scrollable::AbsoluteOffset {
+                        x: None,
+                        y: Some(offset),
+                    },
+                );
+            }
         } else {
             // no audio active
         }
@@ -716,6 +725,21 @@ impl App {
             crate::audio::audio_view::Message::ShowControls => {
                 self.audio_view.update_controls(true);
             }
+            crate::audio::audio_view::Message::LyricSeek(idx) => {
+                self.audio_view
+                    .update(crate::audio::audio_view::Message::LyricSeek(idx));
+                return cosmic::iced::widget::scrollable::scroll_to(
+                    self.audio_view.lyrics_scroll_id.clone(),
+                    cosmic::iced::widget::scrollable::AbsoluteOffset {
+                        x: None,
+                        y: Some(self.audio_view.lyrics_scroll_sent),
+                    },
+                );
+            }
+            crate::audio::audio_view::Message::LyricsScroll(offset) => {
+                self.audio_view
+                    .update(crate::audio::audio_view::Message::LyricsScroll(offset));
+            }
             _ => self.audio_view.update(audio_message),
         }
 
@@ -917,5 +941,162 @@ impl App {
         }
 
         Task::none()
+    }
+}
+
+#[cfg(test)]
+mod lyrics_integration {
+    //! End-to-end check of the lyrics column flow (see
+    //! `docs/plan-lyrics-view.md`): open an audio file that has a same-name
+    //! `.lrc` through the real `App` message path, verify discovery, the
+    //! headless `view()` build of the audio view with the lyrics column,
+    //! and the seek / follow / manual-scroll message flow.
+    //!
+    //! The audio fixture is generated with `ffmpeg` (the same soft
+    //! dependency the `audio::audio` tests use); without `ffmpeg` the test
+    //! skips, like the other fixture-dependent tests.
+    use super::*;
+    use crate::app::Flags;
+    use crate::config::Config;
+
+    /// `(audio with .lrc, .lrc path, audio without .lrc)` in a shared
+    /// tempdir, or `None` when no fixture can be produced.
+    fn fixture() -> Option<(String, String, String)> {
+        let dir =
+            std::env::temp_dir().join(format!("mb_lyrics_integration_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).ok()?;
+        let mp3 = dir.join("track.mp3");
+        let lrc = dir.join("track.lrc");
+        if !mp3.is_file() {
+            let ok = std::process::Command::new("ffmpeg")
+                .args([
+                    "-y",
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    "sine=frequency=440:duration=2",
+                    "-c:a",
+                    "libmp3lame",
+                    "-q:a",
+                    "9",
+                    mp3.to_str()?,
+                ])
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false);
+            if !ok {
+                return None;
+            }
+            std::fs::write(
+                &lrc,
+                "[00:00.00]First line\n[00:01.00]Second line\n[00:01.50]\n[00:02.00]Third line",
+            )
+            .ok()?;
+            let plain = dir.join("plain.mp3");
+            std::fs::copy(&mp3, &plain).ok()?;
+        }
+        Some((
+            mp3.to_str()?.to_string(),
+            lrc.to_str()?.to_string(),
+            dir.join("plain.mp3").to_str()?.to_string(),
+        ))
+    }
+
+    fn test_app(location: &std::path::Path) -> App {
+        let (mut app, _task) = App::init(
+            cosmic::app::Core::default(),
+            Flags {
+                config_handler: None,
+                config: Config::default(),
+                mode: Mode::Browser,
+                locations: vec![crate::tab::Location::Path(location.to_path_buf())],
+            },
+        );
+        app
+    }
+
+    #[test]
+    fn lyrics_column_flow() {
+        let Some((audio, lrc, plain)) = fixture() else {
+            eprintln!("skipped: no audio fixture (ffmpeg missing?)");
+            return;
+        };
+
+        // The fixture itself must be usable.
+        let lyrics =
+            crate::audio::lyrics::from_audio_file(&audio).expect("fixture .lrc must parse");
+        assert!(std::path::Path::new(&lrc).is_file());
+
+        let mut app = test_app(std::path::Path::new(&audio).parent().unwrap());
+
+        // Open the audio file that has a same-name `.lrc` next to it.
+        let _ = app.update(Message::AudioMessage(
+            crate::audio::audio_view::Message::Open(audio),
+        ));
+
+        assert!(app.audio_view.audio_opt.is_some(), "audio must load");
+        assert!(
+            !app.audio_view.lyrics.is_empty(),
+            "lyrics must be discovered from track.lrc"
+        );
+        assert_eq!(
+            app.audio_view.lyrics, lyrics,
+            "view lyrics must match the parsed fixture"
+        );
+        let lines = app.audio_view.lyrics.clone();
+
+        // The full view tree (audio view + lyrics column) must build.
+        {
+            let _el = app.view();
+        }
+
+        // LyricSeek: seeks to the line and (re-)arms follow mode.
+        let target_idx = 3;
+        let _ = app.update(Message::AudioMessage(
+            crate::audio::audio_view::Message::LyricSeek(target_idx),
+        ));
+        assert!(
+            (app.audio_view.position - lines[target_idx].time).abs() < 1e-6,
+            "position must be at the clicked line"
+        );
+        assert_eq!(
+            app.audio_view.lyrics_scroll_sent,
+            crate::audio::lyrics::scroll_target(&lines, target_idx)
+        );
+        assert!(app.audio_view.lyrics_follow);
+
+        // Manual scrolling disables follow and records the offset.
+        let _ = app.update(Message::AudioMessage(
+            crate::audio::audio_view::Message::LyricsScroll(123.0),
+        ));
+        assert!(!app.audio_view.lyrics_follow);
+        assert_eq!(app.audio_view.lyrics_scroll_sent, 123.0);
+        // Same active line: no new scroll target while the user scrolls.
+        app.audio_view.position = lines[target_idx].time;
+        assert_eq!(app.audio_view.lyrics_scroll_target(), None);
+
+        // Playback reaching a different line resumes follow with the
+        // right target, then settles (no repeated commands).
+        let other_idx = 1;
+        app.audio_view.position = lines[other_idx].time;
+        assert_eq!(
+            app.audio_view.lyrics_scroll_target(),
+            Some(crate::audio::lyrics::scroll_target(&lines, other_idx))
+        );
+        assert!(app.audio_view.lyrics_follow);
+        assert_eq!(app.audio_view.lyrics_scroll_target(), None);
+
+        // A file without an `.lrc` must load with no lyrics.
+        let _ = app.update(Message::AudioMessage(
+            crate::audio::audio_view::Message::Open(plain),
+        ));
+        assert!(app.audio_view.audio_opt.is_some(), "plain audio must load");
+        assert!(app.audio_view.lyrics.is_empty());
+        {
+            let _el = app.view();
+        }
     }
 }

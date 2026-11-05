@@ -16,9 +16,9 @@ use cosmic::cosmic_theme;
 #[cfg(feature = "wayland")]
 use cosmic::iced::event::wayland::OutputEvent;
 use cosmic::iced::{
-    Size,
     clipboard::dnd::DndAction,
     keyboard::{Key, Modifiers},
+    Size,
 };
 use cosmic::widget::{self, menu::action::MenuAction, segmented_button, segmented_button::Entity};
 use notify_debouncer_full::notify::RecommendedWatcher;

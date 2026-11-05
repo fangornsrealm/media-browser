@@ -35,18 +35,12 @@ pub struct SimilarScanState {
 
 impl App {
     /// Handle `Message::SimilarImageScan`.
-    pub fn similar_image_scan(
-        &mut self,
-        entity_opt: Option<Entity>,
-    ) -> Task<Message> {
+    pub fn similar_image_scan(&mut self, entity_opt: Option<Entity>) -> Task<Message> {
         self.start_similar_scan(SimilarKind::Image, entity_opt)
     }
 
     /// Handle `Message::SimilarVideoScan`.
-    pub fn similar_video_scan(
-        &mut self,
-        entity_opt: Option<Entity>,
-    ) -> Task<Message> {
+    pub fn similar_video_scan(&mut self, entity_opt: Option<Entity>) -> Task<Message> {
         self.start_similar_scan(SimilarKind::Video, entity_opt)
     }
 
@@ -71,11 +65,7 @@ impl App {
     }
 
     /// Handle a nav-bar menu item: scan the nav location's directory.
-    pub fn nav_similar_scan(
-        &mut self,
-        kind: SimilarKind,
-        entity: Entity,
-    ) -> Task<Message> {
+    pub fn nav_similar_scan(&mut self, kind: SimilarKind, entity: Entity) -> Task<Message> {
         // Only one scan at a time.
         if self.similar_scan.is_some() {
             return Task::none();
@@ -113,8 +103,7 @@ impl App {
         let config = self.config.similar.clone();
         // Unbounded: progress reports are small and short-lived; the scan
         // thread must never block on the UI.
-        let (tx, rx) =
-            futures_mpsc::unbounded::<SimilarProgress>();
+        let (tx, rx) = futures_mpsc::unbounded::<SimilarProgress>();
         let cancel = Arc::new(AtomicBool::new(false));
         self.similar_cancel_flag = Some(cancel.clone());
         self.similar_scan = Some(SimilarScanState {
@@ -131,20 +120,14 @@ impl App {
         let scan_path = path.to_path_buf();
         std::thread::spawn(move || {
             let result = match kind {
-                SimilarKind::Image => similar::run_image_scan(
-                    &config,
-                    &scan_path,
-                    &tx,
-                    cancel.clone(),
-                )
-                .map(|r| r.pairs_found),
-                SimilarKind::Video => similar::run_video_scan(
-                    &config,
-                    &scan_path,
-                    &tx,
-                    cancel.clone(),
-                )
-                .map(|r| r.html_files),
+                SimilarKind::Image => {
+                    similar::run_image_scan(&config, &scan_path, &tx, cancel.clone())
+                        .map(|r| r.pairs_found)
+                }
+                SimilarKind::Video => {
+                    similar::run_video_scan(&config, &scan_path, &tx, cancel.clone())
+                        .map(|r| r.html_files)
+                }
             };
             match result {
                 Ok(count) => {
@@ -197,47 +180,39 @@ impl App {
                 log::info!("similar scan: results written to {}", path.display());
                 Task::none()
             }
-            SimilarProgress::Warning { message } => {
-                task::batch([self.toasts.push(
-                    cosmic::widget::toaster::Toast::new(message)
-                        .duration(cosmic::widget::toaster::Duration::Long),
-                )])
-            }
+            SimilarProgress::Warning { message } => task::batch([self.toasts.push(
+                cosmic::widget::toaster::Toast::new(message)
+                    .duration(cosmic::widget::toaster::Duration::Long),
+            )]),
             SimilarProgress::Cancelled => {
                 self.similar_scan = None;
                 self.similar_cancel_flag = None;
-                task::batch([self.toasts.push(
-                    cosmic::widget::toaster::Toast::new(crate::fl!(
+                task::batch([self
+                    .toasts
+                    .push(cosmic::widget::toaster::Toast::new(crate::fl!(
                         "similar-scan-cancelled"
-                    )),
-                )])
+                    )))])
             }
-            SimilarProgress::Complete { pairs_found, html_files } => {
+            SimilarProgress::Complete {
+                pairs_found,
+                html_files,
+            } => {
                 let state = self.similar_scan.take();
                 self.similar_cancel_flag = None;
                 let kind = state.as_ref().map(|state| state.kind);
                 let out_dir = state.map(|state| state.out_dir);
                 let complete_msg = match kind {
-                    Some(SimilarKind::Video) => crate::fl!(
-                        "similar-video-scan-complete",
-                        count = html_files
-                    ),
-                    _ => crate::fl!(
-                        "similar-image-scan-complete",
-                        count = pairs_found
-                    ),
+                    Some(SimilarKind::Video) => {
+                        crate::fl!("similar-video-scan-complete", count = html_files)
+                    }
+                    _ => crate::fl!("similar-image-scan-complete", count = pairs_found),
                 };
                 task::batch([self.toasts.push(
                     cosmic::widget::toaster::Toast::new(complete_msg)
                         .duration(cosmic::widget::toaster::Duration::Long)
-                        .action(
-                            crate::fl!("similar-open-results"),
-                            move |_| {
-                                Message::SimilarOpenResults(
-                                    out_dir.clone().unwrap_or_default(),
-                                )
-                            },
-                        ),
+                        .action(crate::fl!("similar-open-results"), move |_| {
+                            Message::SimilarOpenResults(out_dir.clone().unwrap_or_default())
+                        }),
                 )])
             }
         }
@@ -276,9 +251,7 @@ impl App {
             );
             return Task::none();
         }
-        self.operation(Operation::Delete {
-            paths: vec![path],
-        });
+        self.operation(Operation::Delete { paths: vec![path] });
         Task::none()
     }
 

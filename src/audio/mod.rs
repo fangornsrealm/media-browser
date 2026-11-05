@@ -9,6 +9,7 @@ pub mod audio;
 pub mod audio_player;
 pub mod audio_view;
 pub mod coverart;
+pub mod lyrics;
 
 use crate::mpv::MpvError;
 use thiserror::Error;

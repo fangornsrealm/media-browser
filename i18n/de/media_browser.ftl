@@ -396,3 +396,4 @@ description-browser = Wähle anderes Medium
 audio = Tonspur
 subtitles = Untertitel
 chapters = Kapitelmarken
+lyrics = Liedtext

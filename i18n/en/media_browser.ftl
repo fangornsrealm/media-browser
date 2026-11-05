@@ -396,3 +396,4 @@ description-browser = Pick other media to use
 audio = Audio stream
 subtitles = Subtitle stream
 chapters = Chapter marks
+lyrics = Lyrics

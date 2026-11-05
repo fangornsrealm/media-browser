@@ -54,6 +54,10 @@ pub enum Message {
     EndOfStream,
     NewFrame,
     Reload,
+    /// Seek to the start of lyrics line `usize` (from an external `.lrc`).
+    LyricSeek(usize),
+    /// The user scrolled the lyrics column to pixel offset `f32`.
+    LyricsScroll(f32),
     ShowControls,
     SystemThemeModeChange(cosmic_theme::ThemeMode),
     WindowClose,
@@ -78,6 +82,16 @@ pub struct AudioView {
     pub chapters: Vec<crate::sql::Chapter>,
     pub chapters_str: Vec<String>,
     pub current_chapter: usize,
+    /// Lyrics from an external `.lrc` file (empty = no lyrics column).
+    pub lyrics: Vec<crate::audio::lyrics::LyricLine>,
+    /// Stable id of the lyrics `widget::scrollable`, for `scroll_to`.
+    pub lyrics_scroll_id: cosmic::widget::Id,
+    /// Last scroll offset commanded / observed for the lyrics column.
+    pub lyrics_scroll_sent: f32,
+    /// Lyrics column follows playback until the user scrolls manually.
+    pub lyrics_follow: bool,
+    /// Active lyrics line index at the last followed frame.
+    pub lyrics_last_active: usize,
 }
 
 impl AudioView {
@@ -101,6 +115,11 @@ impl AudioView {
             chapters: Vec::new(),
             chapters_str: Vec::new(),
             current_chapter: 0,
+            lyrics: Vec::new(),
+            lyrics_scroll_id: cosmic::widget::Id::unique(),
+            lyrics_scroll_sent: 0.0,
+            lyrics_follow: true,
+            lyrics_last_active: 0,
         };
         audio_view
     }
@@ -119,6 +138,10 @@ impl AudioView {
         self.current_audio = -1;
         self.text_codes = Vec::new();
         self.current_text = -1;
+        self.lyrics = Vec::new();
+        self.lyrics_scroll_sent = 0.0;
+        self.lyrics_follow = true;
+        self.lyrics_last_active = 0;
     }
 
     pub fn load(&mut self) {
@@ -130,8 +153,7 @@ impl AudioView {
         }
         self.close();
         log::info!("Loading {}", audiopath);
-        let audio = match crate::audio::audio::Audio::new(&audiopath, self.posterpath_opt.clone())
-        {
+        let audio = match crate::audio::audio::Audio::new(&audiopath, self.posterpath_opt.clone()) {
             Ok(ok) => ok,
             Err(error) => {
                 log::error!("Failed to open audio file {}: {}", audiopath, error);
@@ -141,6 +163,13 @@ impl AudioView {
 
         self.duration = audio.duration().as_secs_f64();
         self.audio_opt = Some(audio);
+
+        // External lyrics: a `.lrc` file with the same name next to the
+        // audio file. No file (or nothing usable) = no lyrics column.
+        self.lyrics = crate::audio::lyrics::from_audio_file(&audiopath).unwrap_or_default();
+        self.lyrics_scroll_sent = 0.0;
+        self.lyrics_follow = true;
+        self.lyrics_last_active = 0;
 
         // Populate the track lists from mpv's `track-list`.
         let Some(audio) = self.audio_opt.as_ref() else {
@@ -159,6 +188,38 @@ impl AudioView {
                 .collect();
             self.current_audio = audio.current_audio();
         }
+    }
+
+    /// Scroll offset (px from the top) that places the active lyric line at
+    /// the top of the lyrics column, while the column follows playback.
+    ///
+    /// `None` while there are no lyrics, while the user is manually
+    /// scrolling (until playback reaches a new line), or while the offset
+    /// would not change by more than a pixel. The commanded offset is
+    /// recorded in `lyrics_scroll_sent` so follow-up frames do not re-issue
+    /// the same command.
+    pub fn lyrics_scroll_target(&mut self) -> Option<f32> {
+        if self.lyrics.is_empty() {
+            return None;
+        }
+        let idx = crate::audio::lyrics::active_index(&self.lyrics, self.position)?;
+        if !self.lyrics_follow {
+            // Playback moved to a new line: resume following.
+            if idx != self.lyrics_last_active {
+                self.lyrics_follow = true;
+                self.lyrics_last_active = idx;
+            } else {
+                return None;
+            }
+        }
+        let target = crate::audio::lyrics::scroll_target(&self.lyrics, idx);
+        if (target - self.lyrics_scroll_sent).abs() < 1.0 {
+            self.lyrics_last_active = idx;
+            return None;
+        }
+        self.lyrics_scroll_sent = target;
+        self.lyrics_last_active = idx;
+        Some(target)
     }
 
     pub fn update_controls(&mut self, in_use: bool) {
@@ -281,6 +342,21 @@ impl AudioView {
             }
             Message::Reload => {
                 self.load();
+            }
+            Message::LyricSeek(idx) => {
+                let Some(line) = self.lyrics.get(idx).cloned() else {
+                    return;
+                };
+                // Resume follow-mode at the clicked line; the scroll
+                // command itself is issued by the caller (`audio_message`).
+                self.lyrics_follow = true;
+                self.lyrics_last_active = idx;
+                self.lyrics_scroll_sent = crate::audio::lyrics::scroll_target(&self.lyrics, idx);
+                self.update(Message::Seek(line.time));
+            }
+            Message::LyricsScroll(offset) => {
+                self.lyrics_follow = false;
+                self.lyrics_scroll_sent = offset;
             }
             _ => {}
         }

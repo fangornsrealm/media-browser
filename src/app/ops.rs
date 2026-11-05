@@ -29,8 +29,8 @@
 use cosmic::action as message;
 use cosmic::app::Task;
 use cosmic::iced::runtime::clipboard;
-use cosmic::iced::{Size, window};
-use cosmic::widget::{self, ToastId, segmented_button::Entity};
+use cosmic::iced::{window, Size};
+use cosmic::widget::{self, segmented_button::Entity, ToastId};
 use std::path::PathBuf;
 use std::process;
 
