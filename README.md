@@ -118,6 +118,12 @@ The file preview can be navigated by seleting via mouse or by Previous/Next butt
 
 In the browser you can trigger a `Find Similar Images` or a `Find Similar Videos`. It uses [duplo-rs](https://github.com/fangornsrealm/duplo-rs/tree/master) to find similar images or similar videos in the local directory or subdirectories. It will create a directory `similar_images` / `simiar_videos` that contain the found files for comparison.
 
+The `similar_images` directory contains all found pairs of images with a random prefix so they can be sorted and compared by name. If you are satisfied with the selection you can delete the pairs or the complete `similar_images` directory. The images marked with `_KEEP` at the end of the file name are copies / hardlinks. And the images marked with `_REMOVE` have been moved. If you find a pair that does not match you can move the `_REMOVE` marked file elsewhere to keep it.
+
+The definition of *similar* has many definitions for videos. So the program cannot decide if this is a duplicate you want to remove. For example the search algorithm looks vor video snippets with one minute minimal length. TvShow Episodes with a long identical intro will be all listed as similar. If you need detailed information on the parameters of the search algorithm read the docs at [duplo-rs](https://github.com/fangornsrealm/duplo-rs/tree/master). The default is to take a screenshot every ten seconds and minimum take six similar images in a row. Meaning sixty seconds of runtime. If you need five minutes, you can change the settings and increase either the time between the screenshots or the number of required matches.
+
+The `simiar_videos` directory contains HTML files with links to the found videos. In installed browsers it should just open on play or click on the link. If your browser is installed by snap or flatpak at least chromium does not find the link.
+
 The video search is much slower than the image search as it creates many screenshots for each video. But it should be able to find not only copies and scaled videos but also snippets of videos (longer than a minute) or modified footage.
 
 You can monitor the progress as it is logged to the system. When the process is done, it will say so in the log.

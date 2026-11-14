@@ -94,8 +94,14 @@ impl App {
         }
 
         if kind == SimilarKind::Video && !similar::ffmpeg_available() {
+            let message = crate::fl!("similar-ffmpeg-missing");
+            log::warn!(
+                "similar video scan: refusing to scan {} — {}",
+                path.display(),
+                message
+            );
             return task::batch([self.toasts.push(
-                cosmic::widget::toaster::Toast::new(crate::fl!("similar-ffmpeg-missing"))
+                cosmic::widget::toaster::Toast::new(message)
                     .duration(cosmic::widget::toaster::Duration::Long),
             )]);
         }
@@ -118,6 +124,11 @@ impl App {
         });
 
         let scan_path = path.to_path_buf();
+        log::warn!(
+            "similar {} scan: started, scanning {} (progress is reported per file)",
+            kind.media_name(),
+            scan_path.display()
+        );
         std::thread::spawn(move || {
             let result = match kind {
                 SimilarKind::Image => {
@@ -180,11 +191,17 @@ impl App {
                 log::info!("similar scan: results written to {}", path.display());
                 Task::none()
             }
-            SimilarProgress::Warning { message } => task::batch([self.toasts.push(
-                cosmic::widget::toaster::Toast::new(message)
-                    .duration(cosmic::widget::toaster::Duration::Long),
-            )]),
+            SimilarProgress::Warning { message } => {
+                log::error!("similar scan: {message}");
+                task::batch([self.toasts.push(
+                    cosmic::widget::toaster::Toast::new(message)
+                        .duration(cosmic::widget::toaster::Duration::Long),
+                )])
+            }
             SimilarProgress::Cancelled => {
+                if let Some(kind) = self.similar_scan.as_ref().map(|state| state.kind) {
+                    log::warn!("similar {} scan: cancelled by user", kind.media_name());
+                }
                 self.similar_scan = None;
                 self.similar_cancel_flag = None;
                 task::batch([self
@@ -207,6 +224,14 @@ impl App {
                     }
                     _ => crate::fl!("similar-image-scan-complete", count = pairs_found),
                 };
+                log::warn!(
+                    "similar scan: {} (results in {})",
+                    complete_msg,
+                    out_dir
+                        .as_ref()
+                        .map(|dir| dir.display().to_string())
+                        .unwrap_or_else(|| String::from("<unknown>"))
+                );
                 task::batch([self.toasts.push(
                     cosmic::widget::toaster::Toast::new(complete_msg)
                         .duration(cosmic::widget::toaster::Duration::Long)
