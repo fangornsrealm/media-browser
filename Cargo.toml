@@ -1,6 +1,6 @@
 [package]
 name = "media-browser"
-version = "0.9.0"
+version = "1.0.0"
 authors = ["Alexander Schwarzkopf <progs@fangornsrealm.eu>"]
 edition = "2024"
 description = "Browse and play your media files, view your images, tag them and search for metadata."

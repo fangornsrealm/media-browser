@@ -29,6 +29,8 @@ Depending on how many directories there are to scan and the number of media this
 journalctl -f  /usr/bin/media-browser
 ```
 
+If your executable is installed somewhere else, use the correct path.
+
 ### Search
 
 ![media-browser search](res/media-browsesr.png)
@@ -111,6 +113,20 @@ The buttons from left to right have the following functions:
 The image viewer, video and audio player each provide a navigation strip (which can be opened clicking the three vertical dots) to prewiew the other files besides the current one. Be it from a diretory or a search result.
 
 The file preview can be navigated by seleting via mouse or by Previous/Next buttons on the left or PageUp/PageDown Keys. If there are different media types selected, the viewer changes with the selected file.
+
+### Search for similar images / videos
+
+In the browser you can trigger a `Find Similar Images` or a `Find Similar Videos`. It uses [duplo-rs](https://github.com/fangornsrealm/duplo-rs/tree/master) to find similar images or similar videos in the local directory or subdirectories. It will create a directory `similar_images` / `simiar_videos` that contain the found files for comparison.
+
+The video search is much slower than the image search as it creates many screenshots for each video. But it should be able to find not only copies and scaled videos but also snippets of videos (longer than a minute) or modified footage.
+
+You can monitor the progress as it is logged to the system. When the process is done, it will say so in the log.
+
+```Shell
+journalctl -f  /usr/bin/media-browser
+```
+
+If your executable is installed somewhere else, use the correct path.
 
 ## Development status
 
