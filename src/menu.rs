@@ -91,6 +91,16 @@ pub fn context_menu<'a>(
     selected_types.sort_unstable();
     selected_types.dedup();
 
+    // The similar-media scans operate on the whole tab directory tree, so the
+    // menu items just need the selection to be media-relevant: a directory
+    // (which may hold media) or a file of the matching media type. A bare
+    // video file or image must be able to trigger its own scan (not only a
+    // metadata/poster folder).
+    let has_video = selected_dir > 0
+        || selected_types.iter().any(|mime| mime.type_() == "video");
+    let has_image = selected_dir > 0
+        || selected_types.iter().any(|mime| mime.type_() == "image");
+
     let mut children: Vec<Element<_>> = Vec::new();
     match (&tab.mode, &tab.location) {
         (
@@ -146,16 +156,20 @@ pub fn context_menu<'a>(
                         )
                         .into(),
                     );
+                }
+                // Similar-media scans apply to media, whether the selection is a
+                // metadata/poster folder or a bare media file.
+                if has_image {
                     children.push(
                         menu_item(fl!("similar-image-scan"), Action::SimilarImageScan)
                             .into(),
                     );
-                    if crate::similar::ffmpeg_available() {
-                        children.push(
-                            menu_item(fl!("similar-video-scan"), Action::SimilarVideoScan)
-                                .into(),
-                        );
-                    }
+                }
+                if has_video && crate::similar::ffmpeg_available() {
+                    children.push(
+                        menu_item(fl!("similar-video-scan"), Action::SimilarVideoScan)
+                            .into(),
+                    );
                 }
                 children.push(divider::horizontal::light().into());
                 children.push(menu_item(fl!("rename"), Action::Rename).into());
