@@ -55,6 +55,7 @@ Positions ended with a ? are *stretch goals*. If it is possible AND somebody doe
 - TV Shows show no episodes
 - Collection episode view back button works
 - Collection episode view breadcrumbs do not work and path is not editable.
+- similar video/image scan found nothing (0 entries) when the media is nested under subfolders (e.g. `Show/Season 1/…`): the `recursive` config defaulted to `false`, so `list_media_files` only walked the top-level folder. Default `recursive` to `true`.
 
 #### Open Bugs
 

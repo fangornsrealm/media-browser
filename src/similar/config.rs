@@ -28,7 +28,9 @@ pub struct SimilarConfig {
     /// Base directory under which `similar_images/` and `similar_videos/`
     /// are created. Defaults to the scanned directory.
     pub output_dir: Option<PathBuf>,
-    /// Recurse into subdirectories when scanning.
+    /// Recurse into subdirectories when scanning. Defaults to `true` so
+    /// that opening a media-library folder (e.g. `Show/Season 1/…`) scans
+    /// the whole tree; set to `false` to restrict a scan to a single folder.
     pub recursive: bool,
 }
 
@@ -42,7 +44,7 @@ impl Default for SimilarConfig {
             video_num_threads: 1,
             video_max_cache: 100,
             output_dir: None,
-            recursive: false,
+            recursive: true,
         }
     }
 }
@@ -89,7 +91,7 @@ mod tests {
         assert_eq!(c.video_num_threads, 1);
         assert_eq!(c.video_max_cache, 100);
         assert_eq!(c.output_dir, None);
-        assert!(!c.recursive);
+        assert!(c.recursive);
     }
 
     #[test]
