@@ -6,7 +6,7 @@
 
 use cosmic::{
     Application, ApplicationExt, Element,
-    app::{self, Core, Task, context_drawer, cosmic::Cosmic},
+    app::{Core, Task, context_drawer, cosmic::Cosmic},
     cosmic_config, cosmic_theme, executor,
     iced::{
         Alignment, Event, Length, Size, Subscription, event,
@@ -168,7 +168,7 @@ impl<M: Send + 'static> Dialog<M> {
             settings.platform_specific.application_id = App::APP_ID.to_string();
         }
 
-        let (window_id, window_command) = window::open(settings.clone());
+        let (window_id, _window_command) = window::open(settings.clone());
 
         let mut core = Core::default();
         core.set_main_window_id(Some(window_id));

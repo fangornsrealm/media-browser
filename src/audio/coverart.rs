@@ -88,7 +88,7 @@ pub fn cover_from_image(posterpath: Option<String>) -> (Vec<u8>, u32, u32) {
         // Opaque black placeholder, 4:3.
         width = 640;
         height = 480;
-        v = vec![0u8; (width as usize * height as usize * 4)];
+        v = vec![0u8; width as usize * height as usize * 4];
     }
 
     (v, width, height)

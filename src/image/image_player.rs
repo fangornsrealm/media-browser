@@ -7,7 +7,7 @@
 
 //! Zoom and pan on an image.
 use cosmic::iced;
-use cosmic::iced::core::event::{self, Event};
+use cosmic::iced::core::event::Event;
 use cosmic::iced::core::image;
 use cosmic::iced::core::layout;
 use cosmic::iced::core::mouse;

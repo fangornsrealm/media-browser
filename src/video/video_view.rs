@@ -108,7 +108,7 @@ impl VideoView {
 
     pub fn close(&mut self) {
         //TODO: drop does not work well
-        if let Some(mut video) = self.video_opt.take() {
+        if let Some(video) = self.video_opt.take() {
             log::info!("pausing video");
             video.set_paused(true);
             log::info!("dropping video");
