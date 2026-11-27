@@ -69,7 +69,7 @@ Your list of automatically available entries will vary, depending on what your m
 
 ![media-browser Tags preview](res/media-browset.png)
 
-Directories are not the most flexible solution to order your data. Also the official metadata will help to find every movie in your collection that Quentin Tarantino directed. But only you can decide how to order media and where you will find them again in the selection and order you like.
+Directories are not the most flexible solution to order your data. Also the official metadata will help to find every movie in your collection that Quentin Tarantino directed. But only you can decide how to order media and where you will find them again in the selection and order you like. One easy example is that the official movie metadata do usually not include who wrote the film music score. Only one of the possible groups that could be important for you.
 
 You can add tags to the navigation panel. `Ctrl-T` or `File -> Add Tag to sidebar` will ask you to enter the name of the tag and will create it.
 
@@ -137,6 +137,8 @@ If your executable is installed somewhere else, use the correct path.
 ## Development status
 
 This project is developed and tested on Linux using Wayland and Pipewire. Video and audio playback is handled by [libmpv](https://mpv.io/) (the mpv media player core), which supports any audio and video pipeline. The GUI is based on libcosmic, which needs to be installed to make the UI work properly. If compiled with `winit` feature, it will run on both X11 and Wayland.
+
+If you run this software on a machine without the COSMIC Desktop Environment the program will work, but the missing theming engine will make it look strange. Some functionality will be barely usable.
 
 > [!NOTE]
 > The current Status is feature complete for the 1.0 release. We are in beta mode for the release.
